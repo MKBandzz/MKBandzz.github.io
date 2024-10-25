@@ -38,45 +38,92 @@ Use the imageScale property if the pin image is too large.
 
 UnminedCustomMarkers = {
 
-    isEnabled: false,
+    isEnabled: true,
 
     markers: [
 
         // Example 1: Simple marker
-        {
-            x: -200,
-            z: -200,
-            image: "custom.pin.png",
-            imageAnchor: [0.5, 1],
-            imageScale: 0.5,
-        },
 
         // Example 2: Marker with text
-        {
+
+        // Example 3: Text only
+        
+
+        // add your markers here
+		
+		{
             x: 0,
             z: 0,
             image: "custom.pin.png",
             imageAnchor: [0.5, 1],
-            imageScale: 0.5,
-            text: "Marker with text",
+            imageScale: 0.1,
+            text: "Spawn",
             textColor: "red", 
             offsetX: 0,
             offsetY: 20,
             font: "bold 20px Calibri,sans serif",
         },
-
-        // Example 3: Text only
-        {
-            x: 200,
-            z: 200,
-            text: "Text only", 
-            textColor: "yellow", 
+		
+		
+		
+		{
+            x: -1409,
+            z: 1250,
+            image: "custom.pin.png",
+            imageAnchor: [0.5, 1],
+            imageScale: 0.5,
+            text: "The End",
+            textColor: "red", 
             offsetX: 0,
-            offsetY: 0, 
-            font: "bold 50px Calibri,sans serif",
+            offsetY: 20,
+            font: "bold 20px Calibri,sans serif",
         },
-
-        // add your markers here
+		
+		{
+            x: -715,
+            z: 2604,
+            image: "boomtown.png",
+            imageAnchor: [0.5, 1],
+            imageScale: 0.2,
+            offsetX: 0,
+            offsetY: 30,
+            font: "bold 20px Calibri,sans serif",
+        },
+		
+		{
+            x: 6953,
+            z: 9868,
+            image: "structure.png",
+            imageAnchor: [0.5, 1],
+            imageScale: 0.5, 
+            offsetX: 0,
+            offsetY: 20,
+            font: "bold 20px Calibri,sans serif",
+        },
+		
+		{
+            x: 5955,
+            z: 965,
+            image: "flatlands.png",
+            imageAnchor: [0.5, 1],
+            imageScale: 1, 
+            offsetX: 40,
+            offsetY: 0,
+            font: "bold 20px Calibri,sans serif",
+        },
+		
+				{
+            x: 187,
+            z: 1876,
+            image: "keyeast.png",
+            imageAnchor: [0.5, 1],
+            imageScale: 0.2, 
+            offsetX: 0,
+            offsetY: 10,
+            font: "bold 20px Calibri,sans serif",
+        },
+		
+		
 
 
 
