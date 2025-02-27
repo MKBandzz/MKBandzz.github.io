@@ -6,7 +6,7 @@ var UnminedMapProperties = {
     imageFormat: "jpeg",
     minRegionX: -7,
     minRegionZ: -9,
-    maxRegionX: 19,
+    maxRegionX: 18,
     maxRegionZ: 20,
     worldName: "MKB City - 02/06/25",
     background: "",
