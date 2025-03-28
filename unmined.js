@@ -56,6 +56,113 @@ class RegionMap {
     };
 }
 
+class RedDotMarker {
+
+    #source = undefined;
+    #layer = undefined;
+    #map = undefined;
+    #dataProjection = undefined;
+    #viewProjection = undefined;
+
+    constructor(map, dataProjection, viewProjection) {
+        this.#map = map;
+        this.#dataProjection = dataProjection;
+        this.#viewProjection = viewProjection;
+
+        this.#source = new ol.source.Vector({
+            features: []
+        });
+        this.#layer = new ol.layer.Vector({
+            source: this.#source,
+            zIndex: 1000
+        });
+
+        this.#map.addLayer(this.#layer);
+
+        window.addEventListener('hashchange', (e) => { this.#hashChanged(e.newURL) });
+        this.#hashChanged(window.location.href);
+    }
+
+    getCoordinates() {
+        return RedDotMarker.getCoordinatesFromUrlHash(window.location.hash);
+    }
+
+    static getCoordinatesFromUrlHash(hash) {
+        if (!hash || hash.length <= 1) return undefined;
+
+        const q = new URLSearchParams(hash.substring(1))
+        const rx = q.get('rx');
+        const rz = q.get('rz');
+        if (!rx || !rz) return undefined;
+       
+        const c = [parseInt(rx), parseInt(rz)];
+        return c;
+    }
+
+    static getUrlHashWithCoordinates(hash, coordinates) {
+        hash ??= '#';
+        const q = new URLSearchParams(hash.substring(1));
+        if (!coordinates) {
+            q.delete('rx');
+            q.delete('rz');
+        } else {
+            q.set('rx', coordinates[0]);
+            q.set('rz', coordinates[1]);
+        }
+        const s = q.toString();
+        return '#' + s;
+    }
+
+    setCoordinates(coordinates) {        
+        const url = new URL(window.location.href);
+        url.hash = RedDotMarker.getUrlHashWithCoordinates(url.hash, coordinates);
+        window.location.replace(url);
+    }
+
+    #hashChanged(newURL) {
+        const c = RedDotMarker.getCoordinatesFromUrlHash(new URL(newURL).hash);
+        this.#setRedDotMarker(c);
+    }
+
+    #setRedDotMarker(coordinates) {
+        this.#source.clear();
+
+        if (!coordinates) return;
+
+        const marker = new ol.Feature({
+            geometry: new ol.geom.Point(ol.proj.transform(coordinates, this.#dataProjection, this.#viewProjection))
+        });
+
+        marker.setStyle(new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 6,
+                fill: new ol.style.Fill({
+                    color: 'red'
+                }),
+                stroke: new ol.style.Stroke({
+                    color: '#ffffff',
+                    width: 2
+                })
+            }),
+            text: new ol.style.Text({
+                text: coordinates[0] + ', ' + coordinates[1],
+                font: "bold 14px Arial",
+                offsetY: 25,
+                fill: new ol.style.Fill({ color: '#000000' }),
+                stroke: new ol.style.Stroke({
+                    color: '#ffffff',
+                    width: 3
+                }),
+                padding: [4, 6, 4, 6],
+                //backgroundFill: new ol.style.Fill({ color: '#ffff00' })
+            })
+        }));
+
+        this.#source.addFeature(marker);
+    }
+
+}
+
 class Unmined {
 
     olMap = null;
@@ -66,7 +173,7 @@ class Unmined {
     dataProjection = null;
     regionMap = null;
     markersLayer = null;
-    playerMarkersLayer = null;    
+    playerMarkersLayer = null;
 
     #scaleLine = null;
     #options = null;
@@ -119,7 +226,7 @@ class Unmined {
         const resolutions = new Array(mapZoomLevels + 1);
         for (let z = 0; z <= mapZoomLevels; ++z) {
 
-            let b = 1 * Math.pow(2, mapZoomLevels - z - this.#options.maxZoom); 
+            let b = 1 * Math.pow(2, mapZoomLevels - z - this.#options.maxZoom);
             b = ol.proj.transform([b, b], this.dataProjection, this.viewProjection)[0];
             resolutions[z] = b * dpiScale;
         }
@@ -166,7 +273,7 @@ class Unmined {
             projection: this.dataProjection
         });
 
-        var map = new ol.Map({
+        const map = new ol.Map({
             target: mapElement,
             controls: ol.control.defaults.defaults().extend([
                 mousePositionControl
@@ -219,6 +326,26 @@ class Unmined {
         this.updatePlayerMarkersLayer();
         this.olMap.addControl(this.createContextMenu());
 
+        this.redDotMarker = new RedDotMarker(this.olMap, this.dataProjection, this.viewProjection);
+
+        this.centerOnRedDotMarker();
+    }
+
+    center(blockCoordinates) {
+        const view = this.olMap.getView();
+        const v = ol.proj.transform(blockCoordinates, this.dataProjection, this.viewProjection);
+        view.setCenter(v);
+    }
+
+    centerOnRedDotMarker() {                
+        const c = this.redDotMarker.getCoordinates();
+        if (!c) return;
+        
+        this.center(c);
+    }
+
+    placeRedDotMarker(coordinates) {
+        this.redDotMarker.setCoordinates(coordinates);
     }
 
     createMarkersLayer(markers) {
@@ -315,7 +442,7 @@ class Unmined {
 
         if (this.gridLayer) this.olMap.removeLayer(this.gridLayer);
         if (this.coordinateLayer) this.olMap.removeLayer(this.coordinateLayer);
-        
+
         this.gridLayer = null;
         if (!this.#options.enableGrid) return;
 
@@ -446,13 +573,6 @@ class Unmined {
             items: [],
         });
         contextmenu.on('open', (evt) => {
-            /*
-            const pixel = [
-                evt.pageX - evt.currentTarget.offsetLeft,
-                evt.pageY - evt.currentTarget.offsetTop]
-            const coordinate = ol.proj.transform(this.olMap.getCoordinateFromPixel(pixel), this.viewProjection, this.dataProjection);
-            */
-
             const coordinates = ol.proj.transform(this.olMap.getEventCoordinate(evt.originalEvent), this.viewProjection, this.dataProjection);
 
             coordinates[0] = Math.round(coordinates[0]);
@@ -467,13 +587,36 @@ class Unmined {
             })
             contextmenu.push('-');
 
+            contextmenu.push({
+                text: `Place red dot marker here`,
+                classname: 'menuitem-reddot',
+                callback: () => {
+                    this.placeRedDotMarker(coordinates);
+                }
+            });
+            if (this.redDotMarker.getCoordinates()) {
+                contextmenu.push({
+                    text: `Copy marker link`,
+                    callback: () => {
+                        Unmined.copyToClipboard(window.location.href);
+                    }
+                });
+                contextmenu.push({
+                    text: `Clear marker`,
+                    callback: () => {
+                        this.placeRedDotMarker(undefined);
+                    }
+                });
+            }
+            contextmenu.push('-');
+
             if (this.playerMarkersLayer) {
                 contextmenu.push(
                     {
                         classname: this.#options.showPlayers ? 'menuitem-checked' : 'menuitem-unchecked',
                         text: 'Show players',
                         callback: () => this.togglePlayers()
-                    })                
+                    })
             }
 
             if (this.markersLayer) {
@@ -482,14 +625,14 @@ class Unmined {
                         classname: this.#options.showMarkers ? 'menuitem-checked' : 'menuitem-unchecked',
                         text: 'Show markers',
                         callback: () => this.toggleMarkers()
-                    })                
+                    })
             }
 
 
-            if (this.markersLayer || this.playerMarkersLayer){
+            if (this.markersLayer || this.playerMarkersLayer) {
                 contextmenu.push('-');
             }
-            
+
             if (this.#options.enableGrid) {
                 contextmenu.push(
                     {
@@ -510,7 +653,7 @@ class Unmined {
                         callback: () => this.toggleBinaryGrid()
                     })
             }
-            
+
             contextmenu.push(
                 {
                     classname: this.#options.showScaleBar ? 'menuitem-checked' : 'menuitem-unchecked',
