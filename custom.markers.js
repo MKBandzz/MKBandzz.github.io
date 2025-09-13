@@ -142,7 +142,7 @@ UnminedCustomMarkers = {
         },
 				{
             x: -841,
-            z: 400,
+            z: -400,
             image: "westmkb.png",
             imageAnchor: [0.5, 1],
             imageScale: 0.2,
