@@ -54,14 +54,15 @@
         /* small popup formatting */
         .poi-popup { font-size: 13px; line-height: 1.2; }
 
-        /* Add back any other custom styles from your original unmined.index.html if needed */
     </style>
 
 </head>
 
 <body>
     <div id="map"></div>
-    <div id="overlay"></div> <script type="text/javascript">
+    <div id="overlay"></div> 
+    
+    <script type="text/javascript">
         
         // --------------------------
         // Unmined OpenLayers Initialization (ORIGINAL CODE)
@@ -74,7 +75,7 @@
         
         // This is the main Unmined initialization call
         var unmined = new Unmined();
-        var map = unmined.map("map", UnminedMapProperties, UnminedRegions);
+        var olMap = unmined.map("map", UnminedMapProperties, UnminedRegions); // Use a standard name for the OL map object
         
         // --- End OpenLayers Initialization ---
 
@@ -82,17 +83,22 @@
         // Leaflet Overlay Setup for GeoJSON Vectors (NEW CODE)
         // ----------------------------------------------------
         
-        // 1. Get map dimensions from the original OpenLayers properties (UnminedMapProperties.js)
+        // 1. Calculate Map Dimensions and Offsets based on unmined.map.properties.js
         const MIN_ZOOM = UnminedMapProperties.minZoom;
         const MAX_ZOOM = UnminedMapProperties.maxZoom;
         
-        // Calculate total map size (based on Unmined RegionX/RegionZ)
+        // Calculate total map size (512 blocks/region)
         const MAP_WIDTH = (UnminedMapProperties.maxRegionX + 1 - UnminedMapProperties.minRegionX) * 512;
         const MAP_HEIGHT = (UnminedMapProperties.maxRegionZ + 1 - UnminedMapProperties.minRegionZ) * 512;
+
+        // The world coordinates of the map's top-left corner (0, 0 in Leaflet)
+        const WORLD_MIN_X = UnminedMapProperties.minRegionX * 512; 
+        const WORLD_MIN_Z = UnminedMapProperties.minRegionZ * 512; 
+        
+        // Bounds are defined in the Y/Z-down (Top-Left Origin) format
         const bounds = [[0, 0], [MAP_HEIGHT, MAP_WIDTH]];
 
         // 2. Custom CRS to flip Y/Z axis to match Unmined
-        // The OpenLayers code in unmined.js confirms world Y is positive DOWN (Unmined Z).
         const L_CRS_SimpleFlipped = L.extend({}, L.CRS.Simple, {
             transformation: new L.Transformation(1, 0, -1, 0)
         });
@@ -108,25 +114,43 @@
             doubleClickZoom: false, boxZoom: false, keyboard: false, dragging: false, touchZoom: false
         }).setView([MAP_HEIGHT / 2, MAP_WIDTH / 2], 0); // Start center at zoom 0
 
-        // Fit bounds to align the Leaflet map's extent with the OpenLayers map's extent
         overlayMap.fitBounds(bounds);
         
         // *** CRITICAL SYNCHRONIZATION STEP ***
-        // OpenLayers 'moveend' event is fired after a pan/zoom. We force Leaflet to match.
-        // The coordinates between the two systems are non-trivial to convert,
-        // but ol.View.getCenter() returns a coordinate in the data projection (pixels, Y-down).
-        // For now, we rely on the initial fitBounds. If vectors do not stay aligned on zoom/pan,
-        // we'll need to write a complex sync function here.
-
-        // 4. GeoJSON conversion (No inversion needed since the map CRS is now Y/Z-down)
-        // GeoJSON [X, Y] (from QGIS) -> Leaflet LatLng [Y, X]
-        function qgisToLeaflet(x,y){ return [y, x]; }
+        // OpenLayers event listener to keep Leaflet synchronized with every pan/zoom
+        olMap.getView().on('change:resolution', function() {
+            const resolution = olMap.getView().getResolution();
+            const zoom = overlayMap.options.crs.zoom(resolution);
+            overlayMap.setZoom(zoom);
+        });
+        
+        olMap.on('moveend', function() {
+            const centerCoords = olMap.getView().getCenter(); // Returns [X, Y] in pixel space (Y is Z-down)
+            const centerLatLng = [centerCoords[1], centerCoords[0]]; // Leaflet LatLng expects [Y, X]
+            overlayMap.setView(centerLatLng, overlayMap.getZoom(), { animate: false });
+        });
+        
+        // 4. *** CORRECTED GeoJSON Translation AND Inversion Function ***
+        // Converts absolute Minecraft coordinates (X, Z) to Leaflet coordinates relative to the map origin,
+        // accounting for the map offset and the Y-axis inversion.
+        function qgisToLeaflet(x_geojson, y_geojson){
+            
+            // 1. X (Longitude): Offset absolute X by the world's minimum X. (X is not inverted)
+            const x_leaflet = x_geojson - WORLD_MIN_X;
+            
+            // 2. Y (Latitude/Z): Apply offset and inversion.
+            // GeoJSON Y (increases up) needs to be mapped to Leaflet Y (increases down/South).
+            const y_leaflet = MAP_HEIGHT - (y_geojson - WORLD_MIN_Z);
+            
+            // 3. Return as Leaflet LatLng [Y, X]
+            return [y_leaflet, x_leaflet]; 
+        }
         
         // --------------------------
         // Custom Vector Layers (Roads and POIs)
         // --------------------------
-        const roadLayer = L.layerGroup().addTo(overlayMap);
-        const poiLayer = L.layerGroup().addTo(overlayMap);
+        const roadLayer = L.layerGroup();
+        const poiLayer = L.layerGroup();
         const REPO_NAME = ''; // For MKBandzz.github.io root
 
         // --- Utility Functions ---
@@ -140,7 +164,10 @@
 
         // --- Load Roads ---
         fetch(REPO_NAME + '/roads.geojson')
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error('roads.geojson not found: ' + r.status);
+            return r.json();
+        })
         .then(geo => {
             geo.features.forEach(feature => {
                 const props = feature.properties || {};
@@ -152,26 +179,28 @@
 
                 let color = 'gray', weight = 2;
                 if(props.Type === 'Highway' || props.Type === 'Ramp'){
-                    color = 'yellow'; weight = 6;
+                    color = '#ffaa00'; weight = 6;
                 } else if(props.Type === 'Arterial' || props.Type === 'Road'){
                     color = 'white'; weight = 4;
                 } else if(props.Type === 'Street'){
                     color = 'gray'; weight = 2;
                 }
 
-                // Add pointerEvents: 'auto' so the vectors are clickable through the overlay div
                 L.polyline(latlngs, { color: color, weight: weight, pointerEvents: 'auto' })
                     .bindPopup('<div class="poi-popup"><b>' + (props.Name || '') + '</b><br/>Type: ' + (props.Type || '') + '</div>')
                     .addTo(roadLayer)
                     .bindTooltip(props.Name || '', { permanent:false, direction:'top' });
             });
         })
-        .catch(err => console.error('Error loading roads.geojson', err));
+        .catch(err => console.error('Error loading roads.geojson. Check the file path and existence:', err));
 
 
         // --- Load POIs (Properties) ---
         fetch(REPO_NAME + '/properties.geojson')
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error('properties.geojson not found: ' + r.status);
+            return r.json();
+        })
         .then(geo => {
             geo.features.forEach(feature => {
                 const props = feature.properties || {};
@@ -184,12 +213,11 @@
                     
                     try {
                         const latlngs = geom.coordinates[0].map(c => qgisToLeaflet(c[0], c[1]));
-                        // Add pointerEvents: 'auto'
-                        L.polygon(latlngs, { color:'blue', weight:2, fillColor:'blue', fillOpacity:0.2, pointerEvents: 'auto' })
+                        L.polygon(latlngs, { color:'#0055ff', weight:2, fillColor:'#0055ff', fillOpacity:0.2, pointerEvents: 'auto' })
                             .bindPopup('<div class="poi-popup"><b>' + (props.Name||'') + '</b><br/>Address: ' + (props.Address||'') + '</div>')
                             .addTo(poiLayer);
                     } catch(e){
-                        // ignore polygon draw errors
+                        console.error('Polygon drawing error:', e);
                     }
                 } else if(geom.type === 'Point') {
                     centroidXY = geom.coordinates;
@@ -200,15 +228,30 @@
                 if(!centroidXY || centroidXY.length < 2) return;
                 const coord = qgisToLeaflet(centroidXY[0], centroidXY[1]);
 
-                // Add pointerEvents: 'auto'
                 L.circleMarker(coord, { radius:5, color:'red', fillOpacity:0.9, pointerEvents: 'auto' })
                     .bindPopup('<div class="poi-popup"><b>' + (props.Name||'') + '</b><br/>Address: ' + (props.Address||'') + '</div>')
                     .addTo(poiLayer)
                     .bindTooltip(props.Name || '', { permanent:false, direction:'top' });
             });
         })
-        .catch(err => console.error('Error loading properties.geojson', err));
+        .catch(err => console.error('Error loading properties.geojson. Check the file path and existence:', err));
         
+        // --------------------------
+        // 5. Layer Control Setup (MUST RUN LAST)
+        // --------------------------
+        
+        // Add layers to the map by default
+        roadLayer.addTo(overlayMap);
+        poiLayer.addTo(overlayMap);
+
+        // Define the layers for the control box
+        const overlayMaps = {
+            "Roads Network": roadLayer,
+            "Properties/POIs": poiLayer
+        };
+
+        // Add the Layer Control to the Leaflet overlay map
+        L.control.layers(null, overlayMaps, { collapsed: false }).addTo(overlayMap);
     </script>
 </body>
 </html>
