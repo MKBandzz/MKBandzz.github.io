@@ -43,7 +43,6 @@
         #map {
             height: 100%;
             width: 100%;
-            /* The base map container for OpenLayers (original) */
         }
         
         /* *** CRITICAL: Overlay container for Leaflet vectors *** */
@@ -53,11 +52,9 @@
             left: 0;
             height: 100%;
             width: 100%;
-            /* Make it transparent */
             background-color: transparent; 
-            /* Allows clicks to pass through to the OpenLayers map in transparent areas */
             pointer-events: none; 
-            z-index: 1000; /* Place it above the OpenLayers map */
+            z-index: 1000;
         }
         /* small popup formatting */
         .poi-popup { font-size: 13px; line-height: 1.2; }
@@ -84,9 +81,8 @@
         }
 
         const mapElement = document.getElementById('map');
-        // The original OpenLayers map object, initialized by Unmined.
+        // Initialize OpenLayers map
         const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
-        // Note: The OpenLayers map object is now available as unmined.olMap
         
         // --- End OpenLayers Initialization ---
 
@@ -94,13 +90,19 @@
         // Leaflet Overlay Setup for GeoJSON Vectors (NEW CODE)
         // ----------------------------------------------------
         
-        // 1. Get map dimensions from the original OpenLayers properties
+        // 1. Calculate Map Dimensions and Offsets based on unmined.map.properties.js
         const MIN_ZOOM = UnminedMapProperties.minZoom;
         const MAX_ZOOM = UnminedMapProperties.maxZoom;
         
         // Calculate total map size (512 blocks/region)
         const MAP_WIDTH = (UnminedMapProperties.maxRegionX + 1 - UnminedMapProperties.minRegionX) * 512;
         const MAP_HEIGHT = (UnminedMapProperties.maxRegionZ + 1 - UnminedMapProperties.minRegionZ) * 512;
+
+        // The world coordinates of the map's top-left corner (0, 0 in Leaflet)
+        const WORLD_MIN_X = UnminedMapProperties.minRegionX * 512; // -4608
+        const WORLD_MIN_Z = UnminedMapProperties.minRegionZ * 512; // -4096
+        
+        // Bounds are defined in the Y/Z-down (Top-Left Origin) format
         const bounds = [[0, 0], [MAP_HEIGHT, MAP_WIDTH]];
 
         // 2. Custom CRS to flip Y/Z axis to match OpenLayers/Unmined
@@ -110,21 +112,32 @@
 
         // 3. Create the Leaflet Overlay Map
         const overlayMap = L.map('overlay', {
-            // Use the flipped CRS to match the OpenLayers map's projection
             crs: L_CRS_SimpleFlipped,
             minZoom: MIN_ZOOM,
             maxZoom: MAX_ZOOM,
-            // Disable all controls to avoid interfering with OpenLayers controls
             zoomControl: false, attributionControl: false, scrollWheelZoom: false,
             doubleClickZoom: false, boxZoom: false, keyboard: false, dragging: false, touchZoom: false
         }).setView([MAP_HEIGHT / 2, MAP_WIDTH / 2], 0);
 
-        // Fit bounds to align the Leaflet map's extent with the OpenLayers map's extent
         overlayMap.fitBounds(bounds);
 
-        // 4. GeoJSON conversion (No inversion needed since the map CRS is now Y/Z-down)
-        // GeoJSON [X, Y] (from QGIS) -> Leaflet LatLng [Y, X]
-        function qgisToLeaflet(x,y){ return [y, x]; }
+        // 4. *** FINAL FIX: GeoJSON Translation AND Inversion Function ***
+        // Converts absolute Minecraft coordinates (X, Z) to Leaflet coordinates relative to the map origin,
+        // accounting for the map offset and the Y-axis inversion.
+        function qgisToLeaflet(x_geojson, y_geojson){
+            
+            // 1. X (Longitude): Offset absolute X by the world's minimum X. (X is not inverted)
+            const x_leaflet = x_geojson - WORLD_MIN_X;
+            
+            // 2. Y (Latitude/Z): Apply offset and inversion.
+            // GeoJSON Y (increases up) needs to be mapped to Leaflet Y (increases down).
+            // (y_geojson - WORLD_MIN_Z) gives us the relative distance from the map's northern boundary.
+            // Subtracting that from MAP_HEIGHT inverts the coordinate.
+            const y_leaflet = MAP_HEIGHT - (y_geojson - WORLD_MIN_Z);
+            
+            // 3. Return as Leaflet LatLng [Y, X]
+            return [y_leaflet, x_leaflet]; 
+        }
         
         // --------------------------
         // Custom Vector Layers (Roads and POIs)
@@ -144,7 +157,10 @@
 
         // --- Load Roads ---
         fetch(REPO_NAME + '/roads.geojson')
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error('roads.geojson not found: ' + r.status);
+            return r.json();
+        })
         .then(geo => {
             geo.features.forEach(feature => {
                 const props = feature.properties || {};
@@ -163,19 +179,21 @@
                     color = 'gray'; weight = 2;
                 }
 
-                // Make the polyline clickable
                 L.polyline(latlngs, { color: color, weight: weight, pointerEvents: 'auto' })
                     .bindPopup('<div class="poi-popup"><b>' + (props.Name || '') + '</b><br/>Type: ' + (props.Type || '') + '</div>')
                     .addTo(roadLayer)
                     .bindTooltip(props.Name || '', { permanent:false, direction:'top' });
             });
         })
-        .catch(err => console.error('Error loading roads.geojson', err));
+        .catch(err => console.error('Error loading roads.geojson. Check the file path and existence:', err));
 
 
         // --- Load POIs (Properties) ---
         fetch(REPO_NAME + '/properties.geojson')
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error('properties.geojson not found: ' + r.status);
+            return r.json();
+        })
         .then(geo => {
             geo.features.forEach(feature => {
                 const props = feature.properties || {};
@@ -209,7 +227,7 @@
                     .bindTooltip(props.Name || '', { permanent:false, direction:'top' });
             });
         })
-        .catch(err => console.error('Error loading properties.geojson', err));
+        .catch(err => console.error('Error loading properties.geojson. Check the file path and existence:', err));
         
     </script>
 </body>
