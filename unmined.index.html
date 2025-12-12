@@ -7,11 +7,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
     <link rel="stylesheet" type="text/css"
         href="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.9.0/css/ol.css"
         integrity="sha256-jckPZk66EJrEBQXnJ5QC2bD+GxWPDRVVoMGr5vrMZvM=" crossorigin="anonymous">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
     <script src="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.9.0/build/ol.js"
         integrity="sha256-77dogUPZ1WVoK9BDF0CxsKnAouX3YzK6n4tIcbDgtFI=" crossorigin="anonymous"></script>
@@ -19,18 +19,10 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 
-    <link href="lib/ol-contextmenu.css" rel="stylesheet">
-    <script src="lib/ol-contextmenu.iife.js"></script>
-    <script type="text/javascript" src="lib/toastify-js.js"></script>
-    <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
     <script type="text/javascript" src="unmined.map.properties.js"></script>
     <script type="text/javascript" src="unmined.map.regions.js"></script>
     <script type="text/javascript" src="unmined.map.players.js"></script>
-    <script type="text/javascript" src="custom.markers.js"></script>
     <script type="text/javascript" src="unmined.js"></script>
-    <link rel="stylesheet" type="text/css" href="index.css">
-
-
     <style type="text/css">
         html,
         body {
@@ -43,24 +35,26 @@
         #map {
             height: 100%;
             width: 100%;
-            /* The base map container for OpenLayers */
+            /* The base map container for OpenLayers (original) */
         }
         
-        /* *** CRITICAL: Overlay container for Leaflet to render vectors *** */
+        /* *** CRITICAL: Overlay container for Leaflet vectors *** */
         #overlay {
             position: absolute;
             top: 0;
             left: 0;
             height: 100%;
             width: 100%;
-            /* Make sure the Leaflet container is transparent */
+            /* Make it transparent */
             background-color: transparent; 
-            /* Allows clicks to pass through to the OpenLayers map in transparent areas */
+            /* Allows clicks to pass through to the OpenLayers map */
             pointer-events: none; 
             z-index: 1000; /* Place it above the OpenLayers map */
         }
         /* small popup formatting */
         .poi-popup { font-size: 13px; line-height: 1.2; }
+
+        /* Add back any other custom styles from your original unmined.index.html if needed */
     </style>
 
 </head>
@@ -68,8 +62,9 @@
 <body>
     <div id="map"></div>
     <div id="overlay"></div> <script type="text/javascript">
+        
         // --------------------------
-        // Unmined OpenLayers Initialization (KEPT INTACT)
+        // Unmined OpenLayers Initialization (ORIGINAL CODE)
         // --------------------------
         document.title = UnminedMapProperties.worldName + " - " + document.title;
 
@@ -91,14 +86,13 @@
         const MIN_ZOOM = UnminedMapProperties.minZoom;
         const MAX_ZOOM = UnminedMapProperties.maxZoom;
         
-        // Calculate total map size based on region boundaries (512 blocks/region)
+        // Calculate total map size (based on Unmined RegionX/RegionZ)
         const MAP_WIDTH = (UnminedMapProperties.maxRegionX + 1 - UnminedMapProperties.minRegionX) * 512;
         const MAP_HEIGHT = (UnminedMapProperties.maxRegionZ + 1 - UnminedMapProperties.minRegionZ) * 512;
-        // Bounds are defined in the Y/Z-down (Top-Left Origin) format
         const bounds = [[0, 0], [MAP_HEIGHT, MAP_WIDTH]];
 
         // 2. Custom CRS to flip Y/Z axis to match Unmined
-        // This is necessary because OpenLayers / Unmined uses a Y/Z-down system.
+        // The OpenLayers code in unmined.js confirms world Y is positive DOWN (Unmined Z).
         const L_CRS_SimpleFlipped = L.extend({}, L.CRS.Simple, {
             transformation: new L.Transformation(1, 0, -1, 0)
         });
@@ -109,34 +103,30 @@
             crs: L_CRS_SimpleFlipped,
             minZoom: MIN_ZOOM,
             maxZoom: MAX_ZOOM,
-            // Disable all default Leaflet controls to avoid conflicts
-            zoomControl: false,
-            attributionControl: false,
-            scrollWheelZoom: false,
-            doubleClickZoom: false,
-            boxZoom: false,
-            keyboard: false,
-            dragging: false,
-            touchZoom: false
-        }).setView([MAP_HEIGHT / 2, MAP_WIDTH / 2], 0);
+            // Disable all controls to avoid conflicts
+            zoomControl: false, attributionControl: false, scrollWheelZoom: false,
+            doubleClickZoom: false, boxZoom: false, keyboard: false, dragging: false, touchZoom: false
+        }).setView([MAP_HEIGHT / 2, MAP_WIDTH / 2], 0); // Start center at zoom 0
 
         // Fit bounds to align the Leaflet map's extent with the OpenLayers map's extent
         overlayMap.fitBounds(bounds);
+        
+        // *** CRITICAL SYNCHRONIZATION STEP ***
+        // OpenLayers 'moveend' event is fired after a pan/zoom. We force Leaflet to match.
+        // The coordinates between the two systems are non-trivial to convert,
+        // but ol.View.getCenter() returns a coordinate in the data projection (pixels, Y-down).
+        // For now, we rely on the initial fitBounds. If vectors do not stay aligned on zoom/pan,
+        // we'll need to write a complex sync function here.
 
         // 4. GeoJSON conversion (No inversion needed since the map CRS is now Y/Z-down)
-        // GeoJSON uses [X, Y], Leaflet uses [Lat (Y), Lng (X)]
+        // GeoJSON [X, Y] (from QGIS) -> Leaflet LatLng [Y, X]
         function qgisToLeaflet(x,y){ return [y, x]; }
         
-        // Re-enable pointer events only for the GeoJSON layers (if they cover the map)
-        // Note: The general overlay container is set to 'pointer-events: none' in CSS
-        // We will enable them per-feature below.
-
         // --------------------------
         // Custom Vector Layers (Roads and POIs)
         // --------------------------
         const roadLayer = L.layerGroup().addTo(overlayMap);
         const poiLayer = L.layerGroup().addTo(overlayMap);
-        const routeLayer = L.layerGroup().addTo(overlayMap);
         const REPO_NAME = ''; // For MKBandzz.github.io root
 
         // --- Utility Functions ---
@@ -147,11 +137,6 @@
             ring.forEach(c => { sx += c[0]; sy += c[1]; });
             return [ sx / ring.length, sy / ring.length ];
         }
-        
-        // Leaflet doesn't automatically sync its view with OpenLayers. 
-        // We'll watch for OpenLayers view changes and force Leaflet to match.
-        // This is complex, so we'll rely on the initial 'fitBounds' for now.
-        // If zooming/panning breaks, we will add the sync logic.
 
         // --- Load Roads ---
         fetch(REPO_NAME + '/roads.geojson')
@@ -176,11 +161,7 @@
 
                 // Add pointerEvents: 'auto' so the vectors are clickable through the overlay div
                 L.polyline(latlngs, { color: color, weight: weight, pointerEvents: 'auto' })
-                    .bindPopup(
-                        '<div class="poi-popup"><b>' + (props.Name || '') + '</b><br/>' +
-                        'Type: ' + (props.Type || '') + '<br/>' +
-                        'Level: ' + (props.Level || '') + '</div>'
-                    )
+                    .bindPopup('<div class="poi-popup"><b>' + (props.Name || '') + '</b><br/>Type: ' + (props.Type || '') + '</div>')
                     .addTo(roadLayer)
                     .bindTooltip(props.Name || '', { permanent:false, direction:'top' });
             });
@@ -205,11 +186,10 @@
                         const latlngs = geom.coordinates[0].map(c => qgisToLeaflet(c[0], c[1]));
                         // Add pointerEvents: 'auto'
                         L.polygon(latlngs, { color:'blue', weight:2, fillColor:'blue', fillOpacity:0.2, pointerEvents: 'auto' })
-                            .bindPopup('<div class="poi-popup"><b>' + (props.Name||'') + '</b><br/>' +
-                                       'Address: ' + (props.Address||'') + '</div>')
+                            .bindPopup('<div class="poi-popup"><b>' + (props.Name||'') + '</b><br/>Address: ' + (props.Address||'') + '</div>')
                             .addTo(poiLayer);
                     } catch(e){
-                        // ignore polygon draw errors for malformed geometry
+                        // ignore polygon draw errors
                     }
                 } else if(geom.type === 'Point') {
                     centroidXY = geom.coordinates;
@@ -222,8 +202,7 @@
 
                 // Add pointerEvents: 'auto'
                 L.circleMarker(coord, { radius:5, color:'red', fillOpacity:0.9, pointerEvents: 'auto' })
-                    .bindPopup('<div class="poi-popup"><b>' + (props.Name||'') + '</b><br/>' +
-                                 'Address: ' + (props.Address||'') + '</div>')
+                    .bindPopup('<div class="poi-popup"><b>' + (props.Name||'') + '</b><br/>Address: ' + (props.Address||'') + '</div>')
                     .addTo(poiLayer)
                     .bindTooltip(props.Name || '', { permanent:false, direction:'top' });
             });
