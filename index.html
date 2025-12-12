@@ -1,73 +1,4 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-    <title>uNmINeD</title>
-
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-
-    <link rel="stylesheet" type="text/css" href="lib/ol.css">
-    
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-    <script src="lib/ol.js"></script>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-    <link href="lib/ol-contextmenu.css" rel="stylesheet">
-    <script src="lib/ol-contextmenu.iife.js"></script>
-
-    <script type="text/javascript" src="lib/toastify-js.js"></script>
-    <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
-
-
-    <script type="text/javascript" src="unmined.map.properties.js"></script>
-    <script type="text/javascript" src="unmined.map.regions.js"></script>
-    <script type="text/javascript" src="unmined.map.players.js"></script>
-
-    <script type="text/javascript" src="custom.markers.js"></script>
-
-    <script type="text/javascript" src="unmined.js"></script>
-    <link rel="stylesheet" type="text/css" href="index.css">
-    
-    <style type="text/css">
-        html,
-        body {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
-        }
-
-        #map {
-            height: 100%;
-            width: 100%;
-        }
-        
-        /* *** CRITICAL: Overlay container for Leaflet vectors *** */
-        #overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            height: 100%;
-            width: 100%;
-            background-color: transparent; 
-            pointer-events: none; /* Allows clicks to pass through to the OL map */
-            z-index: 1000; /* Place it above the OpenLayers map */
-        }
-        /* small popup formatting */
-        .poi-popup { font-size: 13px; line-height: 1.2; }
-
-    </style>
-
-</head>
-
-<body>
-    <div id="map"></div>
-    <div id="overlay"></div> 
-    
-    <script type="text/javascript">
+<script type="text/javascript">
         
         // --------------------------
         // Unmined OpenLayers Initialization (ORIGINAL CODE)
@@ -85,12 +16,12 @@
         const mapElement = document.getElementById('map');
         // Initialize OpenLayers map
         const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
-        const olMap = unmined.map; // Get the OpenLayers map object (essential for synchronization)
+        const olMap = unmined.map; // *** CRITICAL FIX: Extract OpenLayers map object ***
         
         // --- End OpenLayers Initialization ---
 
         // ----------------------------------------------------
-        // Leaflet Overlay Setup for GeoJSON Vectors (NEW CODE)
+        // Leaflet Overlay Setup for GeoJSON Vectors
         // ----------------------------------------------------
         
         // 1. Calculate Map Dimensions and Offsets based on unmined.map.properties.js
@@ -102,8 +33,8 @@
         const MAP_HEIGHT = (UnminedMapProperties.maxRegionZ + 1 - UnminedMapProperties.minRegionZ) * 512;
 
         // The world coordinates of the map's top-left corner (0, 0 in Leaflet)
-        const WORLD_MIN_X = UnminedMapProperties.minRegionX * 512; // e.g., -4608
-        const WORLD_MIN_Z = UnminedMapProperties.minRegionZ * 512; // e.g., -4096
+        const WORLD_MIN_X = UnminedMapProperties.minRegionX * 512;
+        const WORLD_MIN_Z = UnminedMapProperties.minRegionZ * 512;
         
         // Bounds are defined in the Y/Z-down (Top-Left Origin) format
         const bounds = [[0, 0], [MAP_HEIGHT, MAP_WIDTH]];
@@ -125,8 +56,8 @@
 
         overlayMap.fitBounds(bounds);
 
-        // 4. *** CRITICAL SYNCHRONIZATION STEP ***
-        // OpenLayers event listener to keep Leaflet synchronized with every pan/zoom
+        // 4. *** CRITICAL FIX: MAP SYNCHRONIZATION ***
+        // OpenLayers event listeners to keep Leaflet synchronized with every pan/zoom
         olMap.getView().on('change:resolution', function() {
             const resolution = olMap.getView().getResolution();
             const zoom = overlayMap.options.crs.zoom(resolution);
@@ -139,28 +70,20 @@
             overlayMap.setView(centerLatLng, overlayMap.getZoom(), { animate: false });
         });
 
-        // 5. *** FINAL FIX: GeoJSON Translation AND Inversion Function ***
-        // Converts absolute Minecraft coordinates (X, Z) to Leaflet coordinates relative to the map origin,
-        // accounting for the map offset and the Y-axis inversion.
+        // 5. GeoJSON Translation AND Inversion Function (Correct)
         function qgisToLeaflet(x_geojson, y_geojson){
-            
-            // 1. X (Longitude): Offset absolute X by the world's minimum X. (X is not inverted)
             const x_leaflet = x_geojson - WORLD_MIN_X;
-            
-            // 2. Y (Latitude/Z): Apply offset and inversion.
-            // GeoJSON Y (increases up) needs to be mapped to Leaflet Y (increases down/South).
             const y_leaflet = MAP_HEIGHT - (y_geojson - WORLD_MIN_Z);
-            
-            // 3. Return as Leaflet LatLng [Y, X]
             return [y_leaflet, x_leaflet]; 
         }
         
         // --------------------------
         // Custom Vector Layers (Roads and POIs)
         // --------------------------
-        const roadLayer = L.layerGroup(); 
-        const poiLayer = L.layerGroup(); 
-        const REPO_NAME = ''; // For MKBandzz.github.io root - assumes files are in the root directory
+        // Note: Removing the .addTo(overlayMap) from the initial definition to manage it with L.control.layers
+        const roadLayer = L.layerGroup();
+        const poiLayer = L.layerGroup();
+        const REPO_NAME = ''; 
 
         // --- Utility Functions ---
         function polygonCentroid(coords){
@@ -188,14 +111,13 @@
 
                 let color = 'gray', weight = 2;
                 if(props.Type === 'Highway' || props.Type === 'Ramp'){
-                    color = '#ffaa00'; weight = 6; // Brighter yellow/orange for visibility
+                    color = '#ffaa00'; weight = 6;
                 } else if(props.Type === 'Arterial' || props.Type === 'Road'){
                     color = 'white'; weight = 4;
                 } else if(props.Type === 'Street'){
                     color = 'gray'; weight = 2;
                 }
 
-                // Explicitly set pointerEvents: 'auto' to enable clicks/popups
                 L.polyline(latlngs, { color: color, weight: weight, pointerEvents: 'auto' })
                     .bindPopup('<div class="poi-popup"><b>' + (props.Name || '') + '</b><br/>Type: ' + (props.Type || '') + '</div>')
                     .addTo(roadLayer)
@@ -223,7 +145,6 @@
                     
                     try {
                         const latlngs = geom.coordinates[0].map(c => qgisToLeaflet(c[0], c[1]));
-                        // Explicitly set pointerEvents: 'auto'
                         L.polygon(latlngs, { color:'#0055ff', weight:2, fillColor:'#0055ff', fillOpacity:0.2, pointerEvents: 'auto' })
                             .bindPopup('<div class="poi-popup"><b>' + (props.Name||'') + '</b><br/>Address: ' + (props.Address||'') + '</div>')
                             .addTo(poiLayer);
@@ -239,7 +160,6 @@
                 if(!centroidXY || centroidXY.length < 2) return;
                 const coord = qgisToLeaflet(centroidXY[0], centroidXY[1]);
 
-                // Explicitly set pointerEvents: 'auto'
                 L.circleMarker(coord, { radius:5, color:'red', fillOpacity:0.9, pointerEvents: 'auto' })
                     .bindPopup('<div class="poi-popup"><b>' + (props.Name||'') + '</b><br/>Address: ' + (props.Address||'') + '</div>')
                     .addTo(poiLayer)
@@ -263,8 +183,6 @@
         };
 
         // Add the Layer Control to the Leaflet overlay map
-        // The Leaflet default location is top-right.
         L.control.layers(null, overlayMaps, { collapsed: false }).addTo(overlayMap);
+        
     </script>
-</body>
-</html>
