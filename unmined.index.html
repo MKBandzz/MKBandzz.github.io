@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - OpenLayers Only (Final Fix)</title>
+    <title>MKB City Map - OpenLayers Only (Final Vector Fix)</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -123,9 +123,8 @@
             
             const worldProps = UnminedMapProperties;
             
-            // Critical check for fixed properties
             if (!Array.isArray(worldProps.zoomResolutions) || worldProps.zoomResolutions.length === 0) {
-                 console.error("CRITICAL FAILURE: The properties file is corrupt. Please update unmined.map.properties.js as specified in Step 1.");
+                 console.error("CRITICAL FAILURE: The properties file is corrupt. Please ensure unmined.map.properties.js is fixed.");
                  return;
             }
 
@@ -151,7 +150,7 @@
                 origin: [0, 0]
             });
             
-            // 1A. Create the Base Tile Layer (uNmINeD Tiles)
+            // 1A. Create the Base Tile Layer (uNmINeD Tiles) (Tile logic is correct now)
             const tileLayer = new ol.layer.Tile({
                 title: 'Minecraft Base Map',
                 source: new ol.source.XYZ({
@@ -159,11 +158,10 @@
                     tileGrid: tileGrid,
                     wrapX: false,
                     
-                    // --- FINAL TILE URL FIX: STANDARD FOLDER STRUCTURE ---
                     tileUrlFunction: function(coordinate) {
                         if (!coordinate) return undefined;
                         
-                        // coordinate[0] = Z (Zoom), coordinate[1] = X (Tile index), coordinate[2] = Y (Tile index)
+                        // Z (Zoom), X (Tile index), Y (Tile index)
                         const z = coordinate[0];
                         const x = coordinate[1];
                         
@@ -172,17 +170,12 @@
 
                         if (z < 0 || x < 0 || y < 0) return undefined;
 
-                        // This is the default uNmINeD folder structure logic
-                        // It splits the large X and Y tile indices into thousands folders for efficient access.
+                        // Standard uNmINeD folder structure logic
                         const xFolder = Math.floor(x / 1000);
                         const yFolder = Math.floor(y / 1000);
                         
-                        const url = `tiles/zoom.${z}/${xFolder}/${yFolder}/tile.${x}.${y}.png`;
-                        
-                        console.debug("Generated Tile URL (FOLDER structure):", url);
-                        return url; 
+                        return `tiles/zoom.${z}/${xFolder}/${yFolder}/tile.${x}.${y}.png`;
                     }
-                    // ---------------------------------------------------
                 })
             });
 
@@ -199,20 +192,14 @@
                 })
             });
             
-            console.log("SUCCESS: OpenLayers map initialized directly. Proceeding with vectors.");
+            console.log("SUCCESS: OpenLayers map initialized and tiles loading. Fixing vector orientation...");
             
             // Define necessary variables for GeoJSON loading
             const dataProjectionCode = 'EPSG:3857';
             const viewProjection = olMap.getView().getProjection();
 
-            // Function to apply the Z-inversion (Y-coordinate in OpenLayers)
-            function invertZ(coordinates) {
-                if (typeof coordinates[0] === 'number') {
-                    return [coordinates[0], -coordinates[1]];
-                } else {
-                    return coordinates.map(invertZ);
-                }
-            }
+            // *** MANUAL INVERSION FUNCTION REMOVED ***
+            // *** The GeoJSON format object will handle the projection. ***
 
 
             // --------------------------
@@ -227,7 +214,11 @@
 
             const roadSource = new ol.source.Vector({
                 url: 'roads.geojson',
-                format: new ol.format.GeoJSON({ dataProjection: dataProjectionCode, featureProjection: viewProjection }),
+                // Tell OpenLayers to convert GeoJSON data (X, Z) into our view's projection (X, -Z)
+                format: new ol.format.GeoJSON({ 
+                    dataProjection: dataProjectionCode, 
+                    featureProjection: viewProjection 
+                }),
             });
             
             const roadLayer = new ol.layer.Vector({
@@ -241,13 +232,8 @@
             olMap.addLayer(roadLayer);
 
             roadSource.once('featuresloadend', function(evt) {
+                // No manual coordinate inversion here. Let the projection handle it.
                 console.log(`ROAD LAYER: Finished loading. Features: ${roadSource.getFeatures().length}`);
-                roadSource.getFeatures().forEach(feature => {
-                    const geometry = feature.getGeometry();
-                    if (geometry) {
-                        geometry.setCoordinates(invertZ(geometry.getCoordinates()));
-                    }
-                });
             });
 
 
@@ -273,7 +259,10 @@
             
             const poiSource = new ol.source.Vector({
                 url: 'properties.geojson',
-                format: new ol.format.GeoJSON({ dataProjection: dataProjectionCode, featureProjection: viewProjection }),
+                format: new ol.format.GeoJSON({ 
+                    dataProjection: dataProjectionCode, 
+                    featureProjection: viewProjection 
+                }),
             });
             
             const poiLayer = new ol.layer.Vector({
@@ -287,13 +276,8 @@
             olMap.addLayer(poiLayer);
             
             poiSource.once('featuresloadend', function(evt) {
+                 // No manual coordinate inversion here. Let the projection handle it.
                 console.log(`POI LAYER: Finished loading. Features: ${poiSource.getFeatures().length}`);
-                poiSource.getFeatures().forEach(feature => {
-                    const geometry = feature.getGeometry();
-                    if (geometry) {
-                        geometry.setCoordinates(invertZ(geometry.getCoordinates()));
-                    }
-                });
             });
 
             
