@@ -329,6 +329,10 @@ class Unmined {
         this.redDotMarker = new RedDotMarker(this.olMap, this.dataProjection, this.viewProjection);
 
         this.centerOnRedDotMarker();
+        // --- NEW CODE: Pathfinding Coordinates ---
+        this.pathStartCoordinates = undefined;
+        this.pathEndCoordinates = undefined;
+        // ----------------------------------------
     }
 
     center(blockCoordinates) {
@@ -609,6 +613,50 @@ class Unmined {
                 });
             }
             contextmenu.push('-');
+
+            // ----------------------------------------
+            // --- NEW CODE: Pathfinding Menu Items ---
+            // ----------------------------------------
+            
+            const formattedCoords = coordinates[0] + ', ' + coordinates[1];
+            
+            // Helper to display coordinates or 'None'
+            const formatPointDisplay = (coords) => coords ? `${coords[0]}, ${coords[1]}` : 'None';
+
+            // 1. Set Path Start Point
+            contextmenu.push({
+                text: `Set Path Start (${formatPointDisplay(this.pathStartCoordinates)})`,
+                callback: () => {
+                    this.pathStartCoordinates = coordinates;
+                    Unmined.toast(`Path Start set to: ${formattedCoords}`);
+                    // Call pathfinding function here if implemented
+                }
+            });
+
+            // 2. Set Path End Point
+            contextmenu.push({
+                text: `Set Path End (${formatPointDisplay(this.pathEndCoordinates)})`,
+                callback: () => {
+                    this.pathEndCoordinates = coordinates;
+                    Unmined.toast(`Path End set to: ${formattedCoords}`);
+                    // Call pathfinding function here if implemented
+                }
+            });
+            
+            // 3. Clear Path Points (only show if at least one point is set)
+            if (this.pathStartCoordinates || this.pathEndCoordinates) {
+                 contextmenu.push({
+                    text: 'Clear Path Points',
+                    callback: () => {
+                        this.pathStartCoordinates = undefined;
+                        this.pathEndCoordinates = undefined;
+                        Unmined.toast('Path points cleared');
+                        // Clear path visualization here if implemented
+                    }
+                });
+            }
+            
+            contextmenu.push('-'); // Separator before toggles
 
             if (this.playerMarkersLayer) {
                 contextmenu.push(
