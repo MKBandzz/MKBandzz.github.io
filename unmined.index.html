@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - OpenLayers Only (Final Vector Fix)</title>
+    <title>MKB City Map - OpenLayers Only (Final Vector Reflection Fix)</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -124,7 +124,7 @@
             const worldProps = UnminedMapProperties;
             
             if (!Array.isArray(worldProps.zoomResolutions) || worldProps.zoomResolutions.length === 0) {
-                 console.error("CRITICAL FAILURE: The properties file is corrupt.");
+                 console.error("CRITICAL FAILURE: The properties file is corrupt. Please ensure unmined.map.properties.js is fixed.");
                  return;
             }
 
@@ -135,8 +135,9 @@
             const center = [worldProps.centerX, -worldProps.centerZ];
             const minZoom = worldProps.minZoom;
             const maxZoom = worldProps.maxZoom;
+            const mapHeight = worldProps.imageHeight; // *** CRITICAL FOR REFLECTION FIX ***
 
-            const mapExtent = [0, 0, worldProps.imageWidth, worldProps.imageHeight];
+            const mapExtent = [0, 0, worldProps.imageWidth, mapHeight];
             const mapProjection = new ol.proj.Projection({
                 code: 'MKB-Minecraft', 
                 units: 'pixels',
@@ -150,7 +151,7 @@
                 origin: [0, 0]
             });
             
-            // 1A. Base Tile Layer
+            // 1A. Base Tile Layer (Tile logic is now confirmed as correct)
             const tileLayer = new ol.layer.Tile({
                 title: 'Minecraft Base Map',
                 source: new ol.source.XYZ({
@@ -187,20 +188,22 @@
                 })
             });
             
-            console.log("SUCCESS: OpenLayers map initialized. Applying final vector coordinate fix...");
+            console.log("SUCCESS: Tiles loading. Applying final vector reflection fix...");
             
-            // Re-introduce the coordinate inversion function for the vector data ONLY
-            function invertZ(coordinates) {
+            // *** FIX: COORDINATE REFLECTION FUNCTION ***
+            // This function reflects the Z-coordinate (which is OpenLayers Y) across the map's horizontal center line.
+            function reflectZ(coordinates) {
                 if (typeof coordinates[0] === 'number') {
-                    // Base case: [X, Z] -> [X, -Z]
-                    return [coordinates[0], -coordinates[1]];
+                    // Base case: [X, Z] -> [X, mapHeight - Z]
+                    // This performs the necessary reflection to correct the orientation.
+                    return [coordinates[0], mapHeight - coordinates[1]];
                 } else {
                     // Recursive case: array of points/arrays
-                    return coordinates.map(invertZ);
+                    return coordinates.map(reflectZ);
                 }
             }
 
-            // Function to load GeoJSON, invert coordinates, and create a source
+            // Function to load GeoJSON, reflect coordinates, and create a source
             function createVectorSource(url) {
                 const vectorSource = new ol.source.Vector();
 
@@ -208,9 +211,8 @@
                     .then(response => response.json())
                     .then(data => {
                         const format = new ol.format.GeoJSON();
+                        // Read features without projection transformation first
                         const features = format.readFeatures(data, {
-                            // Specify that the GeoJSON data is in a generic projection 
-                            // and needs to be manually transformed later.
                             dataProjection: 'EPSG:4326', 
                             featureProjection: 'EPSG:4326'
                         });
@@ -218,13 +220,13 @@
                         features.forEach(feature => {
                             const geometry = feature.getGeometry();
                             if (geometry) {
-                                // Apply the Minecraft Z-axis to OpenLayers Y-axis inversion
-                                geometry.setCoordinates(invertZ(geometry.getCoordinates()));
+                                // Apply the reflection correction to the coordinates
+                                geometry.setCoordinates(reflectZ(geometry.getCoordinates()));
                             }
                         });
                         
                         vectorSource.addFeatures(features);
-                        console.log(`Vector Layer loaded successfully: ${url}`);
+                        console.log(`Vector Layer loaded and reflected successfully: ${url}`);
                     })
                     .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
                 
