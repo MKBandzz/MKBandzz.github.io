@@ -10,8 +10,8 @@
     <link rel="stylesheet" type="text/css" href="lib/ol.css">
     <script src="lib/ol.js"></script>
 
-    <link href="lib/ol-contextmenu.css" rel="stylesheet">
-    <script src="lib/ol-contextmenu.iife.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/ol-contextmenu@latest/dist/ol-contextmenu.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/ol-contextmenu@latest/dist/ol-contextmenu.min.js"></script>
 
     <script type="text/javascript" src="lib/toastify-js.js"></script>
     <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
@@ -22,7 +22,6 @@
     <script type="text/javascript" src="unmined.map.players.js"></script>
 
     <script type="text/javascript" src="custom.markers.js"></script>
-    
     <script type="text/javascript" src="pathfinding.js"></script>
 
     <script type="text/javascript" src="unmined.js"></script>
@@ -146,11 +145,10 @@
     <script type="text/javascript">
         
         // GLOBAL STATE FOR PATHFINDING
-        let isSelectingStart = true; // Kept for future flexibility, not used for click mode
         let startNodeId = null; 
         let endNodeId = null;
         let pathMarkerLayer = null; 
-        let pathLineLayer = null;  
+        let pathLineLayer = null;   
         let roadLayerSource = null; // Source for nearest node searches
 
 
@@ -251,7 +249,7 @@
                 // 5. Add to the Path Line Layer
                 pathLineLayer.getSource().addFeature(pathFeature);
                 
-                // 6. Calculate total distance in blocks (using the function from pathfinding.js)
+                // 6. Calculate total distance in blocks (assuming calculateDistance exists)
                 let totalDistance = 0;
                 for(let i = 0; i < result.path.length - 1; i++) {
                     totalDistance += calculateDistance(result.path[i], result.path[i+1]);
@@ -259,7 +257,8 @@
 
                 statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${totalDistance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
-                 statusElement.textContent = result.message || 'Error: Could not find a route.';
+                 statusElement.textContent = result.message || 'Error: Could not find a route. Check console for details.';
+                 console.error("Pathfinding failed. Check unmined.js and pathfinding.js implementations.");
             }
         }
 
@@ -314,9 +313,11 @@
                                 return coords.map(part => invertCoordinates(part));
                             }
                             if (Array.isArray(coords[0]) && coords[0].length === 2) {
+                                // Only invert the second coordinate (Z) for 2D points
                                 return coords.map(coord => [coord[0], coord[1] * -1]);
                             }
                             if (coords.length === 2 && typeof coords[1] === 'number') {
+                                // For single coordinate array [x, z]
                                 return [coords[0], coords[1] * -1];
                             }
                             return coords;
@@ -421,7 +422,7 @@
             const poiLabel = document.createElement('label'); poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
 
             layerControlDiv.appendChild(roadInput); layerControlDiv.appendChild(roadLabel);
-            layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiLabel);
+            layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiLabel);
 
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
@@ -438,10 +439,33 @@
             const calculateButton = document.createElement('button');
             calculateButton.textContent = 'Calculate Route';
             calculateButton.onclick = function() {
+                
+                // *** CRITICAL DEBUGGING LOG ***
+                console.log("--- Pathfinding Debug on Calculate Click ---");
+                console.log(`Start Node (A): ${startNodeId}`);
+                console.log(`End Node (B): ${endNodeId}`);
+                console.log("------------------------------------------");
+                // ******************************
+
+                // Check for existence of the IDs (they should be strings like "123,456")
                 if (startNodeId && endNodeId) {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else {
-                    alert('Please set both a Start (A) and End (B) point by right-clicking the map.');
+                    // --- IMPROVED ERROR FEEDBACK FIX ---
+                    let missing = [];
+                    if (!startNodeId) missing.push('Start (A)');
+                    if (!endNodeId) missing.push('End (B)');
+                    
+                    const message = 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.';
+                    
+                    // Use Toastify instead of the intrusive alert
+                    Toastify({
+                        text: message,
+                        duration: 5000,
+                        gravity: "top",
+                        position: "center",
+                        style: { background: "red" }
+                    }).showToast();
                 }
             };
             pathControlDiv.appendChild(calculateButton);
@@ -476,18 +500,31 @@
             // === CONTEXT MENU SELECTION HANDLER ===
             function handleContextSelection(viewCoord, type) {
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
+                // Rounding is crucial for matching node IDs stored as integers
                 const preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1])];
 
-                // Use the updated function with the stored roadLayerSource
+                // NOTE: Assuming findNearestNode is defined in pathfinding.js
                 const nearestNode = findNearestNode(preciseBlockCoord, roadLayerSource, dataProjection, viewProjection);
 
                 if (nearestNode) {
                     if (type === 'start') {
                         startNodeId = nearestNode;
-                        endNodeId = null; // Reset end point when a new start is chosen
-                        document.getElementById('path-status').textContent = `START (A) set at ${nearestNode}. Right-click to set END (B).`;
+                        // Keep endNodeId if it's already set, but clear path line
+                        document.getElementById('path-status').textContent = `START (A) set at ${nearestNode}. ${endNodeId ? "END (B) is also set. Click 'Calculate Route'." : "Right-click to set END (B)."}`;
                         pathLineLayer.getSource().clear(); 
                     } else {
+                        // Only set end if start is also set, otherwise force setting start first
+                        if (!startNodeId) {
+                            Toastify({
+                                text: "Please set the START (A) point first.",
+                                duration: 3000,
+                                gravity: "top",
+                                position: "center",
+                                style: { background: "orange" }
+                            }).showToast();
+                            return;
+                        }
+
                         endNodeId = nearestNode;
                         document.getElementById('path-status').textContent = `END (B) set at ${nearestNode}. Click 'Calculate Route'.`;
                     }
@@ -532,35 +569,65 @@
             olMap.addControl(contextmenu);
 
             
-            // --- Single-Click Handler (Only handles popups) ---
+            // --- Single-Click Handler (Handles Popups) ---
             olMap.on('click', function (evt) {
 
                 let featureClicked = false;
                 const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
+                    // Check if a road or POI feature was clicked
                     if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
                         featureClicked = true;
                         return feature;
+                    }
+                    // Do not show popup for Path Markers or Path Line
+                    if (layerTitle === 'Path Markers' || layerTitle === 'Calculated Path') {
+                        return null; 
                     }
                 });
                 
                 if (featureClicked) {
                     const properties = feature.getProperties();
-                    let htmlContent = `<div class="poi-popup-content"><b>${properties.Name || properties.Type || 'Feature'}</b><br>`;
-                    if(properties.Name && properties.Type) {
-                        htmlContent += `Type: ${properties.Type}`;
+                    let htmlContent = `<div class="poi-popup-content">`;
+                    let firstItem = true;
+                    
+                    // Logic: Iterate over all properties to show details
+                    for (const key in properties) {
+                        // Exclude the 'geometry' object and properties with no value
+                        if (key !== 'geometry' && properties[key] !== null && properties[key] !== undefined) {
+                            const value = properties[key];
+                            const displayKey = key.charAt(0).toUpperCase() + key.slice(1);
+                            
+                            if (firstItem && (key === 'Name' || key === 'Type')) {
+                                // Use Name or Type as the bold title
+                                htmlContent += `<b>${value}</b><br>`;
+                                firstItem = false;
+                            } else if (key !== 'Name' && key !== 'Type') {
+                                htmlContent += `<div><b>${displayKey}:</b> ${value}</div>`;
+                            }
+                        }
                     }
+                    
+                    if (firstItem) { // If Name/Type was missing, use a generic title
+                        htmlContent = `<div class="poi-popup-content"><strong>Feature Details</strong>` + htmlContent;
+                    }
+                    
                     htmlContent += `</div>`;
                     
                     content.innerHTML = htmlContent;
                     
                     const geom = feature.getGeometry();
                     let popupCoord;
-                    if (geom.getType() === 'Point') {
-                        popupCoord = geom.getCoordinates();
+                    
+                    // Determine where to place the popup
+                    if (geom.getType() === 'Point' || geom.getType() === 'MultiPoint') {
+                        // For Point features, use the point itself
+                        popupCoord = geom.getCoordinates().flat().slice(0, 2); 
                     } else {
+                        // For LineString/Polygon, place popup at the click location
                         popupCoord = olMap.getCoordinateFromPixel(evt.pixel);
                     }
+                    
                     overlay.setPosition(popupCoord);
 
                     return; 
