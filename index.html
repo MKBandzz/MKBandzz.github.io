@@ -1,462 +1,54 @@
-class RegionMap {
+<!DOCTYPE html>
+<html>
 
-    constructor(regionMap, tileSize, worldMinX, worldMinZ, worldWidth, worldHeight) {
-        this.regionMap = regionMap;
-        this.tileSize = tileSize;
-        this.worldMinX = worldMinX;
-        this.worldMinZ = worldMinZ;
-        this.worldWidth = worldWidth;
-        this.worldHeight = worldHeight;
-    }
+<head>
+    <title>uNmINeD</title>
 
-    hasTile(tileX, tileZ, unminedZoomLevel) {
-        const zoomFactor = Math.pow(2, unminedZoomLevel);
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
-        const minTileX = Math.floor(this.worldMinX * zoomFactor / this.tileSize);
-        const minTileZ = Math.floor(this.worldMinZ * zoomFactor / this.tileSize);
-        const maxTileX = Math.ceil((this.worldMinX + this.worldWidth) * zoomFactor / this.tileSize) - 1;
-        const maxTileZ = Math.ceil((this.worldMinZ + this.worldHeight) * zoomFactor / this.tileSize) - 1;
+    <link rel="stylesheet" type="text/css" href="lib/ol.css">
+    <script src="lib/ol.js"></script>
 
-        if (tileX < minTileX || tileZ < minTileZ || tileX > maxTileX || tileZ > maxTileZ) {
-            return false;
+    <link href="https://cdn.jsdelivr.net/npm/ol-contextmenu@latest/dist/ol-contextmenu.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/ol-contextmenu@latest/dist/ol-contextmenu.min.js"></script>
+
+    <script type="text/javascript" src="lib/toastify-js.js"></script>
+    <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
+
+
+    <script type="text/javascript" src="unmined.map.properties.js"></script>
+    <script type="text/javascript" src="unmined.map.regions.js"></script>
+    <script type="text/javascript" src="unmined.map.players.js"></script>
+
+    <script type="text/javascript" src="custom.markers.js"></script>
+
+    <script type="text/javascript" src="unmined.js"></script>
+    <link rel="stylesheet" type="text/css" href="index.css">
+        
+    </style>
+
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <script type="text/javascript">
+
+        document.title = UnminedMapProperties.worldName + " - " + document.title;
+
+        if (UnminedCustomMarkers && UnminedCustomMarkers.isEnabled && UnminedCustomMarkers.markers) {
+            UnminedMapProperties.markers = UnminedMapProperties.markers.concat(UnminedCustomMarkers.markers);
+        }
+        
+        if (UnminedPlayers && UnminedPlayers.length > 0) {
+            UnminedMapProperties.playerMarkers = Unmined.createPlayerMarkers(UnminedPlayers);
         }
 
-        const tileBlockSize = this.tileSize / zoomFactor;
-        const tileBlockPoint = {
-            x: tileX * tileBlockSize,
-            z: tileZ * tileBlockSize
-        };
+        const mapElement = document.getElementById('map');
+        const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
 
+    </script>
+</body>
 
-        const tileRegionPoint = {
-            x: Math.floor(tileBlockPoint.x / 512),
-            z: Math.floor(tileBlockPoint.z / 512)
-        };
-
-        const regionName = tileRegionPoint.x.toString() + "." + tileRegionPoint.z.toString();
-
-        if (this.regionMap[regionName] === undefined) {
-            return false;
-        }
-
-        const chunkX = Math.floor((tileBlockPoint.x - tileRegionPoint.x * 512) / 16);
-        const chunkZ = Math.floor((tileBlockPoint.z - tileRegionPoint.z * 512) / 16);
-
-        const chunkIndex = chunkX * 32 + chunkZ;
-
-        return this.regionMap[regionName] & (1 << chunkIndex);
-    }
-}
-
-
-class Unmined {
-
-    #options;
-    #maxCoordValue;
-    #olMap;
-    #viewProjection;
-    #dataProjection;
-    #layers = [];
-    #featureOverlay;
-    #selectedFeature = null;
-    #selectInteraction;
-    #contextmenu;
-    #scaleLine;
-
-
-    constructor(options) {
-
-        this.#options = options;
-
-        if (options.map.maxCoordValue)
-            this.#maxCoordValue = options.map.maxCoordValue;
-        else
-            this.#maxCoordValue = Math.max(30000000, options.map.regions.worldWidth / 2, options.map.regions.worldHeight / 2);
-
-        this.#initProjections(this.#maxCoordValue);
-
-        this.#initMap();
-
-        this.#initEvents();
-
-        this.#initLayers();
-
-        this.#initControls();
-
-        this.#initView();
-
-        this.#initMarkers();
-
-        this.#options.map.layers = this.#layers;
-
-    }
-
-    get olMap() {
-        return this.#olMap;
-    }
-
-    get options() {
-        return this.#options;
-    }
-
-    #getMinZoomLevel() {
-        if (this.#options.map.minZoom)
-            return this.#options.map.minZoom;
-        else
-            return 0;
-    }
-
-    #getMaxZoomLevel() {
-        if (this.#options.map.maxZoom)
-            return this.#options.map.maxZoom;
-        else
-            return 8;
-    }
-
-    #getMinResolution() {
-        const zoomLevels = this.#getMaxZoomLevel() - this.#getMinZoomLevel();
-        return Math.pow(2, zoomLevels) / 256;
-    }
-
-
-    #initView() {
-        const center = ol.proj.fromLonLat([0, 0], this.viewProjection);
-        let zoom = 0;
-
-        if (this.#options.map.initialView) {
-            center[0] = this.#options.map.initialView.x;
-            center[1] = -this.#options.map.initialView.z;
-            zoom = this.#options.map.initialView.zoom;
-        }
-
-
-        this.#olMap.setView(new ol.View({
-            projection: this.viewProjection,
-            center: center,
-            zoom: zoom,
-            minZoom: this.#getMinZoomLevel(),
-            maxZoom: this.#getMaxZoomLevel(),
-            constrainResolution: true
-        }));
-    }
-
-    #initMap() {
-        this.#olMap = new ol.Map({
-            target: this.#options.mapId,
-            layers: this.#layers,
-            controls: []
-        });
-    }
-
-    #createContextMenu() {
-        const contextmenu = new ContextMenu({
-            width: 220,
-            defaultItems: false,
-            items: [],
-        });
-
-
-        contextmenu.on('open', (evt) => {
-
-            // Hide context menu if clicked on non-map element
-            if (evt.target.id != this.#options.mapId) {
-                contextmenu.closeMenu();
-                return;
-            }
-
-            // check if we clicked on a feature
-            const feature = this.#olMap.forEachFeatureAtPixel(evt.pixel, (ft) => {
-                return ft;
-            });
-
-            if (feature) {
-                // We clicked on a feature
-                this.#selectInteraction.getFeatures().clear();
-                this.#selectInteraction.getFeatures().push(feature);
-
-                contextmenu.clear();
-                contextmenu.extend(this.#contextmenuFeatureItems(feature));
-            }
-            else {
-                // We did not click on a feature
-                this.#selectInteraction.getFeatures().clear();
-
-                contextmenu.clear();
-                contextmenu.extend(this.#contextmenuMapItems(evt.coordinate));
-            }
-        });
-
-
-        contextmenu.on('close', (evt) => {
-            this.#selectInteraction.getFeatures().clear();
-        });
-
-        return contextmenu;
-    }
-
-    #contextmenuMapItems(coordinate) {
-        const lonLat = ol.proj.toLonLat(coordinate, this.viewProjection);
-        const mapCoordinate = ol.proj.toLonLat([coordinate[0], coordinate[1]], this.viewProjection);
-
-        return [
-            {
-                text: "Coordinates: " + mapCoordinate[0].toFixed(0) + " / " + (-mapCoordinate[1]).toFixed(0),
-                disabled: true
-            },
-            '-',
-            {
-                text: 'Center Map Here',
-                callback: (evt) => {
-                    this.#olMap.getView().setCenter(evt.coordinate);
-                }
-            },
-            {
-                text: 'Zoom In',
-                callback: (evt) => {
-                    const view = this.#olMap.getView();
-                    view.setZoom(view.getZoom() + 1);
-                }
-            },
-            {
-                text: 'Zoom Out',
-                callback: (evt) => {
-                    const view = this.#olMap.getView();
-                    view.setZoom(view.getZoom() - 1);
-                }
-            },
-
-        ];
-    }
-
-    #contextmenuFeatureItems(feature) {
-        const coordinate = feature.getGeometry().getCoordinates();
-        const mapCoordinate = ol.proj.toLonLat([coordinate[0], coordinate[1]], this.viewProjection);
-
-        const items = [];
-
-        items.push({
-            text: "Coordinates: " + mapCoordinate[0].toFixed(0) + " / " + (-mapCoordinate[1]).toFixed(0),
-            disabled: true
-        });
-
-        items.push({
-            text: "Type: " + feature.getProperties().type,
-            disabled: true
-        });
-
-        items.push({
-            text: "Name: " + feature.getProperties().name,
-            disabled: true
-        });
-
-        items.push('-');
-
-        items.push({
-            text: 'Zoom to Marker',
-            callback: (evt) => {
-                const view = this.#olMap.getView();
-                view.setCenter(evt.coordinate);
-                view.setZoom(view.getMaxZoom());
-            }
-        });
-
-        return items;
-    }
-
-
-    #initControls() {
-        this.#olMap.addControl(new ol.control.Attribution({
-            collapsed: false
-        }));
-
-        this.#olMap.addControl(new ol.control.Zoom());
-
-        this.#olMap.addControl(new ol.control.ZoomSlider());
-
-        this.#contextmenu = this.#createContextMenu();
-        this.#olMap.addControl(this.#contextmenu);
-
-        this.#updateScaleLine();
-
-        if (this.#options.map.regions.worldWidth == 0 || this.#options.map.regions.worldHeight == 0)
-            return;
-
-        this.#olMap.addControl(new ol.control.OverviewMap({
-            layers: this.#layers,
-            view: new ol.View({
-                projection: this.viewProjection,
-                minResolution: this.#getMinResolution() * 2,
-                extent: this.viewProjection.getExtent()
-            })
-        }));
-
-    }
-
-    #updateScaleLine() {
-        if (!this.#options.showScaleBar && this.#scaleLine) {
-            this.olMap.removeControl(this.#scaleLine);
-            this.#scaleLine = undefined;
-        }
-        else if (this.#options.showScaleBar && !this.#scaleLine) {
-            this.#scaleLine = new ol.control.ScaleLine({
-                bar: true,
-                minWidth: 200,
-            });
-            this.olMap.addControl(this.#scaleLine);
-
-        }
-    }
-
-    #initProjections(maxCoordValue) {
-        const blocksPerDegrees = Math.max(30000000, maxCoordValue) / 270;
-        const radius = 270;
-
-        this.viewProjection = new ol.proj.Projection({
-            code: 'VIEW',
-            units: 'degrees',
-            extent: [-radius, -radius, +radius, +radius],
-            worldExtent: [-radius, -radius, +radius, +radius],
-            global: true,
-            //metersPerUnit: 1 * blocksPerDegrees
-        });
-
-        this.dataProjection = new ol.proj.Projection({
-            code: 'DATA',
-            units: 'pixels',
-            metersPerUnit: 1
-        });
-
-        // Coordinate transformation between view and data
-        // OpenLayers Y is positive up, world Y is positive down
-        ol.proj.addCoordinateTransforms(this.viewProjection, this.dataProjection,
-            function (coordinate) {
-                return [coordinate[0] * blocksPerDegrees, -coordinate[1] * blocksPerDegrees];
-            },
-            function (coordinate) {
-                return [coordinate[0] / blocksPerDegrees, -coordinate[1] / blocksPerDegrees];
-            });
-
-        // Coordinate transformation between view and web mercator (for custom WMS layers)
-        ol.proj.addCoordinateTransforms(this.viewProjection, ol.proj.get('EPSG:3857'),
-            function (coordinate) {
-                const mapCoordinate = ol.proj.toLonLat([coordinate[0] / blocksPerDegrees, -coordinate[1] / blocksPerDegrees]);
-                return ol.proj.fromLonLat(mapCoordinate);
-            },
-            function (coordinate) {
-                const mapCoordinate = ol.proj.toLonLat(coordinate);
-                return [mapCoordinate[0] * blocksPerDegrees, -mapCoordinate[1] * blocksPerDegrees];
-            });
-    }
-
-    #initLayers() {
-
-        // OpenLayers Tile Layer for Minecraft World
-        const tileLayer = new ol.layer.Tile({
-            source: new ol.source.TileImage({
-                projection: this.viewProjection,
-                tileGrid: new ol.tilegrid.TileGrid({
-                    extent: this.viewProjection.getExtent(),
-                    minZoom: this.#getMinZoomLevel(),
-                    maxZoom: this.#getMaxZoomLevel(),
-                    resolutions: ol.tilegrid.resolutionsFromExtent(this.viewProjection.getExtent(), this.#getMaxZoomLevel() - this.#getMinZoomLevel(), 256)
-                }),
-                tileUrlFunction: (tileCoord) => {
-                    const unminedZoomLevel = tileCoord[0];
-                    const tileX = tileCoord[1];
-                    const tileZ = -tileCoord[2] - 1;
-
-                    if (!new RegionMap(this.#options.map.regions.regionMap, this.#options.map.regions.tileSize, this.#options.map.regions.worldMinX, this.#options.map.regions.worldMinZ, this.#options.map.regions.worldWidth, this.#options.map.regions.worldHeight).hasTile(tileX, tileZ, unminedZoomLevel)) {
-                        return undefined;
-                    }
-
-                    return 'tiles/' + unminedZoomLevel + '/' + tileX + '/' + tileZ + '.png';
-                }
-            })
-        });
-
-        this.#layers.push(tileLayer);
-
-    }
-
-
-    #initMarkers() {
-        const markerFeatures = [];
-
-        if (this.#options.map.markers) {
-            this.#options.map.markers.forEach((marker) => {
-                const iconFeature = new ol.Feature({
-                    geometry: new ol.geom.Point([marker.x, -marker.z]),
-                    name: marker.name,
-                    type: marker.type
-                });
-
-                if (marker.icon) {
-                    iconFeature.setStyle(new ol.style.Style({
-                        image: new ol.style.Icon({
-                            anchor: [0.5, 1],
-                            anchorXUnits: 'fraction',
-                            anchorYUnits: 'fraction',
-                            src: 'img/markers/' + marker.icon
-                        })
-                    }));
-                }
-
-                markerFeatures.push(iconFeature);
-            });
-        }
-
-
-        const markerLayer = new ol.layer.Vector({
-            source: new ol.source.Vector({
-                features: markerFeatures
-            })
-        });
-
-        this.#layers.push(markerLayer);
-    }
-
-    #initEvents() {
-
-        this.#selectInteraction = new ol.interaction.Select({
-            condition: ol.events.condition.click,
-            layers: [this.#layers[1]],
-            style: new ol.style.Style({
-                stroke: new ol.style.Stroke({
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    width: 2,
-                }),
-                fill: new ol.style.Fill({
-                    color: 'rgba(255, 255, 255, 0.4)',
-                }),
-                image: new ol.style.Circle({
-                    radius: 7,
-                    fill: new ol.style.Fill({
-                        color: '#ffcc33',
-                    }),
-                }),
-            })
-        });
-
-        this.#selectInteraction.on('select', (evt) => {
-
-            if (evt.selected.length > 0) {
-                // Feature selected (left-clicked)
-                const feature = evt.selected[0];
-                const properties = feature.getProperties();
-
-                // Show Toastify notification with attributes
-                Toastify({
-                    text: properties.name + " (" + properties.type + ")",
-                    duration: 3000,
-                    gravity: "top", // `top` or `bottom`
-                    position: "right", // `left`, `center` or `right`
-                    backgroundColor: "linear-gradient(to right, #00b09b, #96c93d)",
-                    stopOnFocus: true, // Prevents dismissing of toast on hover
-                }).showToast();
-            }
-        });
-
-        this.#olMap.addInteraction(this.#selectInteraction);
-    }
-
-}
+</html>
