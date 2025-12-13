@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City 12-12-2025 Map 2.0 </title>
+    <title>MKB City Map - Final Vector Alignment Fix</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -166,21 +166,17 @@
                         
                         // **CRITICAL FIX: INVERT Y/Z COORDINATE**
                         function invertCoordinates(coords) {
-                            // Check if this is an array of coordinate arrays (e.g., LineString or Polygon)
+                            // Helper function to handle coordinate structure recursively
                             if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
-                                // Recursive call for Multi-part geometries (MultiLineString, MultiPolygon)
                                 return coords.map(part => invertCoordinates(part));
                             }
-                            // Check if this is an array of coordinate pairs
                             if (Array.isArray(coords[0]) && coords[0].length === 2) {
-                                // Simple LineString or Polygon ring. Negate the Y/Z component.
                                 return coords.map(coord => [coord[0], coord[1] * -1]);
                             }
-                            // Base case: Single coordinate pair (for Point geometry)
                             if (coords.length === 2 && typeof coords[1] === 'number') {
                                 return [coords[0], coords[1] * -1];
                             }
-                            return coords; // Return unchanged if structure is unexpected
+                            return coords;
                         }
 
                         // Apply the inversion to all features
@@ -268,7 +264,7 @@
 
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
-            // 5. OPENLAYERS POPUP/INTERACTION LOGIC (Unchanged)
+            // 5. OPENLAYERS POPUP/INTERACTION LOGIC - UPDATED FOR ROAD/PROPERTY ATTRIBUTES
             
             const container = document.getElementById('popup');
             const content = document.getElementById('popup-content');
@@ -288,21 +284,52 @@
             };
 
             olMap.on('click', function (evt) {
+                let clickedLayer = null;
                 const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
                     if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
-                         return feature;
+                        clickedLayer = layerTitle;
+                        return feature;
                     }
                 });
                 
                 if (feature) {
                     const properties = feature.getProperties();
                     let htmlContent = '';
+                    
+                    if (clickedLayer === 'Roads Network') {
+                        // 1. ROADS LOGIC: Only display Type
+                        const roadType = properties.Type || 'Road Segment';
+                        htmlContent = `<div class="poi-popup-content"><b>${roadType}</b></div>`;
 
-                    if (properties.Type && (properties.Type === 'Highway' || properties.Type === 'Road' || properties.Type === 'Street' || properties.Type === 'Ramp')) {
-                        htmlContent = `<div class="poi-popup-content"><b>${properties.Name || 'Unnamed Road'}</b><br/>Type: ${properties.Type || 'N/A'}</div>`;
-                    } else if (properties.Address || properties.Name) {
-                        htmlContent = `<div class="poi-popup-content"><b>${properties.Name || 'Unnamed Property'}</b><br/>Address: ${properties.Address || 'N/A'}</div>`;
+                    } else if (clickedLayer === 'Properties/POIs') {
+                        // 2. PROPERTIES/POIS LOGIC: Display all relevant attributes
+                        htmlContent += `<div class="poi-popup-content">`;
+                        
+                        // Always try to display Name first
+                        if (properties.Name) {
+                            htmlContent += `<b>${properties.Name}</b><br/>`;
+                        } else if (properties.Type) {
+                            htmlContent += `<b>${properties.Type}</b><br/>`;
+                        }
+                        
+                        // List other properties explicitly
+                        if (properties.Address) {
+                            htmlContent += `Address: ${properties.Address}<br/>`;
+                        }
+                        // Add more properties here if they exist in your GeoJSON:
+                        /*
+                        if (properties.Owner) {
+                            htmlContent += `Owner: ${properties.Owner}<br/>`;
+                        }
+                        */
+                        
+                        // Fallback/Close the div
+                        if (htmlContent === `<div class="poi-popup-content">`) {
+                             htmlContent += `No details available.</div>`;
+                        } else {
+                            htmlContent += `</div>`;
+                        }
                     }
 
                     if (htmlContent) {
