@@ -10,12 +10,8 @@
     <link rel="stylesheet" type="text/css" href="lib/ol.css">
     <script src="lib/ol.js"></script>
 
-    <link href="lib/ol-contextmenu.css" rel="stylesheet">
-    <script src="lib/ol-contextmenu.iife.js"></script>
-
-    <script type="text/javascript" src="lib/toastify-js.js"></script>
     <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
-
+    <script type="text/javascript" src="lib/toastify-js.js"></script>
 
     <script type="text/javascript" src="unmined.map.properties.js"></script>
     <script type="text/javascript" src="unmined.map.regions.js"></script>
@@ -56,80 +52,63 @@
             min-width: 150px;
             z-index: 2000;
         }
+        /* (Popup arrow styles remain the same) */
         #popup:after, #popup:before {
-            top: 100%;
-            border: solid transparent;
-            content: " ";
-            height: 0;
-            width: 0;
-            position: absolute;
-            pointer-events: none;
+            top: 100%; border: solid transparent; content: " "; height: 0; width: 0; position: absolute; pointer-events: none;
         }
         #popup:after {
-            border-top-color: white;
-            border-width: 10px;
-            left: 48px;
-            margin-left: -10px;
+            border-top-color: white; border-width: 10px; left: 48px; margin-left: -10px;
         }
         #popup:before {
-            border-top-color: #cccccc;
-            border-width: 11px;
-            left: 48px;
-            margin-left: -11px;
+            border-top-color: #cccccc; border-width: 11px; left: 48px; margin-left: -11px;
         }
         .popup-closer {
-            text-decoration: none;
-            position: absolute;
-            top: 2px;
-            right: 8px;
-            font-size: 14px;
+            text-decoration: none; position: absolute; top: 2px; right: 8px; font-size: 14px;
         }
         .popup-closer:after {
             content: "✖";
         }
         .poi-popup-content { font-size: 13px; line-height: 1.2; }
+        .poi-popup-content b { display: block; margin-bottom: 2px; }
         
         /* Layer Control Styles */
         .ol-control.layer-toggle-control {
-            top: .5em;
-            right: .5em;
-            background-color: rgba(255, 255, 255, 0.8);
-            padding: 5px 10px;
-            border-radius: 4px;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-            z-index: 2000;
+            top: .5em; right: .5em; background-color: rgba(255, 255, 255, 0.8); padding: 5px 10px; border-radius: 4px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); z-index: 2000;
         }
         .layer-toggle-control label {
-            display: block;
-            font-size: 14px;
-            cursor: pointer;
-            margin-top: 3px;
+            display: block; font-size: 14px; cursor: pointer; margin-top: 3px;
         }
         
         /* Pathfinding UI */
         .ol-control.path-control {
-            top: 6.5em; /* Positioned below layer toggle */
-            right: .5em;
-            background-color: rgba(255, 255, 255, 0.9);
-            padding: 5px 10px;
-            border-radius: 4px;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-            z-index: 2000;
-            font-size: 14px;
-            width: 180px;
+            top: 6.5em; right: .5em; background-color: rgba(255, 255, 255, 0.9); padding: 5px 10px; border-radius: 4px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); z-index: 2000; font-size: 14px; width: 180px;
         }
         .path-control button {
-            display: block;
-            width: 100%;
-            margin-top: 5px;
-            padding: 5px;
-            cursor: pointer;
+            display: block; width: 100%; margin-top: 5px; padding: 5px; cursor: pointer;
         }
         #path-status {
+            font-weight: bold; margin-top: 5px; margin-bottom: 5px; min-height: 3em; 
+        }
+
+        /* CRITICAL NEW: Styling for the custom context menu items */
+        #unmined-context-menu {
+            /* Note: uNmINeD likely controls the positioning and default style. */
+            /* We will target the inserted items */
+        }
+        .context-menu-path-item {
             font-weight: bold;
-            margin-top: 5px;
-            margin-bottom: 5px;
-            min-height: 3em; /* Ensure space for multi-line status */
+            color: #007bff; /* Highlight pathfinding options */
+            cursor: pointer;
+            padding: 4px 10px;
+            border-top: 1px solid #ccc;
+        }
+        .context-menu-path-item:hover {
+            background-color: #f0f0f0;
+        }
+        .context-menu-separator {
+            height: 1px;
+            background-color: #ccc;
+            margin: 4px 0;
         }
     </style>
 
@@ -146,66 +125,45 @@
     <script type="text/javascript">
         
         // GLOBAL STATE FOR PATHFINDING
-        let isSelectingStart = true; // Kept for future flexibility, not used for click mode
+        let isSelectingStart = true;
         let startNodeId = null; 
         let endNodeId = null;
         let pathMarkerLayer = null; 
         let pathLineLayer = null;  
-        let roadLayerSource = null; // Source for nearest node searches
-
+        let roadLayerSource = null;
 
         // Utility function to convert a node ID string "x,z" to a coordinate array [x, z]
         function nodeIdToCoord(nodeId) {
             return nodeId ? nodeId.split(',').map(Number) : null;
         }
         
-        // Utility to draw the start and end markers
+        // Utility to draw the start and end markers (Logic remains the same)
         function drawPathMarkers(olMap, dataProjection, viewProjection) {
             pathMarkerLayer.getSource().clear();
             
             const startCoord = nodeIdToCoord(startNodeId);
             const endCoord = nodeIdToCoord(endNodeId);
             
-            // Start Marker (Green Circle)
+            // Start Marker
             if (startCoord) {
                 const startFeature = new ol.Feature({
                     geometry: new ol.geom.Point(ol.proj.transform(startCoord, dataProjection, viewProjection))
                 });
                 startFeature.setStyle(new ol.style.Style({
-                    image: new ol.style.Circle({
-                        radius: 10,
-                        fill: new ol.style.Fill({ color: 'rgba(76, 175, 80, 0.8)' }), // Green
-                        stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 })
-                    }),
-                    text: new ol.style.Text({
-                        text: 'A (Start)',
-                        font: 'bold 12px sans-serif',
-                        offsetY: 20,
-                        fill: new ol.style.Fill({ color: 'green' }),
-                        stroke: new ol.style.Stroke({ color: 'white', width: 2 })
-                    })
+                    image: new ol.style.Circle({ radius: 10, fill: new ol.style.Fill({ color: 'rgba(76, 175, 80, 0.8)' }), stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 }) }),
+                    text: new ol.style.Text({ text: 'A (Start)', font: 'bold 12px sans-serif', offsetY: 20, fill: new ol.style.Fill({ color: 'green' }), stroke: new ol.style.Stroke({ color: 'white', width: 2 }) })
                 }));
                 pathMarkerLayer.getSource().addFeature(startFeature);
             }
             
-            // End Marker (Red Circle)
+            // End Marker
             if (endCoord) {
                 const endFeature = new ol.Feature({
                     geometry: new ol.geom.Point(ol.proj.transform(endCoord, dataProjection, viewProjection))
                 });
                 endFeature.setStyle(new ol.style.Style({
-                    image: new ol.style.Circle({
-                        radius: 10,
-                        fill: new ol.style.Fill({ color: 'rgba(244, 67, 54, 0.8)' }), // Red
-                        stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 })
-                    }),
-                    text: new ol.style.Text({
-                        text: 'B (End)',
-                        font: 'bold 12px sans-serif',
-                        offsetY: 20,
-                        fill: new ol.style.Fill({ color: 'red' }),
-                        stroke: new ol.style.Stroke({ color: 'white', width: 2 })
-                    })
+                    image: new ol.style.Circle({ radius: 10, fill: new ol.style.Fill({ color: 'rgba(244, 67, 54, 0.8)' }), stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 }) }),
+                    text: new ol.style.Text({ text: 'B (End)', font: 'bold 12px sans-serif', offsetY: 20, fill: new ol.style.Fill({ color: 'red' }), stroke: new ol.style.Stroke({ color: 'white', width: 2 }) })
                 }));
                 pathMarkerLayer.getSource().addFeature(endFeature);
             }
@@ -230,28 +188,24 @@
             
             if (result.path && result.path.length > 0) {
                 
-                // 2. Transform coordinates for OpenLayers display
+                // Transform coordinates for OpenLayers display
                 const transformedCoords = result.path.map(coord => 
                     ol.proj.transform(coord, dataProjection, viewProjection)
                 );
                 
-                // 3. Create the LineString feature
+                // Create the LineString feature
                 const pathFeature = new ol.Feature({
                     geometry: new ol.geom.LineString(transformedCoords)
                 });
                 
-                // 4. Style the path (Blue line)
+                // Style the path (Blue line)
                 pathFeature.setStyle(new ol.style.Style({
-                    stroke: new ol.style.Stroke({
-                        color: 'blue',
-                        width: 8
-                    })
+                    stroke: new ol.style.Stroke({ color: 'blue', width: 8 })
                 }));
                 
-                // 5. Add to the Path Line Layer
                 pathLineLayer.getSource().addFeature(pathFeature);
                 
-                // 6. Calculate total distance in blocks (using the function from pathfinding.js)
+                // Calculate total distance in blocks (using the function from pathfinding.js)
                 let totalDistance = 0;
                 for(let i = 0; i < result.path.length - 1; i++) {
                     totalDistance += calculateDistance(result.path[i], result.path[i+1]);
@@ -283,31 +237,26 @@
             const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
             
             // 2. Accessing Map and Projections
-
             const olMap = unmined.olMap || unmined.openlayersMap;
             const dataProjection = unmined.dataProjection; 
             const viewProjection = unmined.viewProjection; 
 
             if (!olMap || !dataProjection || !viewProjection) { console.error("CRITICAL FAILURE: Map or projection objects are missing."); return; }
             
-            // Initialize path marker layer
+            // Initialize path layers
             pathMarkerLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Path Markers', zIndex: 3000 });
             olMap.addLayer(pathMarkerLayer);
-            
-            // Initialize path line layer
             pathLineLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Calculated Path', zIndex: 2500 });
             olMap.addLayer(pathLineLayer);
 
 
             // 3. VECTOR LAYER SETUP UTILITY WITH COORDINATE NEGATION FIX
-            
             function createVectorLayer(url, dataProjection, viewProjection, style) {
                 const vectorSource = new ol.source.Vector();
 
                 fetch(url)
                     .then(response => response.json())
                     .then(data => {
-                        
                         // **CRITICAL FIX: INVERT Y/Z COORDINATE**
                         function invertCoordinates(coords) {
                             if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
@@ -330,7 +279,6 @@
                         // END CRITICAL FIX
 
                         const format = new ol.format.GeoJSON();
-                        
                         const features = format.readFeatures(data, {
                             dataProjection: dataProjection,
                             featureProjection: viewProjection
@@ -344,38 +292,22 @@
                     })
                     .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
                 
-                return new ol.layer.Vector({
-                    source: vectorSource,
-                    style: style,
-                    visible: true,
-                    zIndex: 1000 
-                });
+                return new ol.layer.Vector({ source: vectorSource, style: style, visible: true, zIndex: 1000 });
             }
 
-            // 3A. Roads Layer Definition (Style remains the same)
+            // 3A. Roads Layer Definition
             function getRoadStyle(feature) {
                 const roadType = feature.get('Type');
                 let color = '#FFFFFF'; let width = 2; 
-
                 switch(roadType) {
-                    case 'Highway': case 'Ramp': case 'Parkway': case 'Freeway':
-                        color = '#F7D678'; width = 5; break;
-                    case 'Arterial': case 'Road':
-                        color = '#FFFFFF'; width = 4; break;
-                    case 'Street': 
-                        color = '#C0C0C0'; width = 3; break;
-                    default:
-                        color = '#FFFFFF'; width = 2; break;
+                    case 'Highway': case 'Ramp': case 'Parkway': case 'Freeway': color = '#F7D678'; width = 5; break;
+                    case 'Arterial': case 'Road': color = '#FFFFFF'; width = 4; break;
+                    case 'Street': color = '#C0C0C0'; width = 3; break;
+                    default: color = '#FFFFFF'; width = 2; break;
                 }
-
                 const outlineWidth = width + 2; 
-                const outlineStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: '#000000', width: outlineWidth, lineCap: 'round', lineJoin: 'round' }),
-                });
-
-                const surfaceStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: color, width: width, lineCap: 'round', lineJoin: 'round' }),
-                });
+                const outlineStyle = new ol.style.Style({ stroke: new ol.style.Stroke({ color: '#000000', width: outlineWidth, lineCap: 'round', lineJoin: 'round' }) });
+                const surfaceStyle = new ol.style.Style({ stroke: new ol.style.Stroke({ color: color, width: width, lineCap: 'round', lineJoin: 'round' }) });
                 return [outlineStyle, surfaceStyle];
             };
 
@@ -384,20 +316,12 @@
             olMap.addLayer(roadLayer);
 
 
-            // 3B. Properties/POIs Layer Definition (Style remains the same)
+            // 3B. Properties/POIs Layer Definition
             const poiStyle = function(feature) {
                 if (feature.getGeometry().getType() === 'Polygon') {
-                    return new ol.style.Style({
-                        stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
-                        fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' })
-                    });
+                    return new ol.style.Style({ stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' }) });
                 } else {
-                    return new ol.style.Style({
-                        image: new ol.style.Circle({
-                            radius: 8, fill: new ol.style.Fill({ color: 'lime' }), 
-                            stroke: new ol.style.Stroke({ color: 'black', width: 2 })
-                        }),
-                    });
+                    return new ol.style.Style({ image: new ol.style.Circle({ radius: 8, fill: new ol.style.Fill({ color: 'lime' }), stroke: new ol.style.Stroke({ color: 'black', width: 2 }) }) });
                 }
             };
             
@@ -410,18 +334,16 @@
             const layerControlDiv = document.createElement('div');
             layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
 
-            const roadInput = document.createElement('input');
-            roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
+            const roadInput = document.createElement('input'); roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
             roadInput.onchange = function() { roadLayer.setVisible(this.checked); };
             const roadLabel = document.createElement('label'); roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
 
-            const poiInput = document.createElement('input');
-            poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
+            const poiInput = document.createElement('input'); poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
             poiInput.onchange = function() { poiLayer.setVisible(this.checked); };
             const poiLabel = document.createElement('label'); poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
 
             layerControlDiv.appendChild(roadInput); layerControlDiv.appendChild(roadLabel);
-            layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiLabel);
+            layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiLabel);
 
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
@@ -484,7 +406,7 @@
                 if (nearestNode) {
                     if (type === 'start') {
                         startNodeId = nearestNode;
-                        endNodeId = null; // Reset end point when a new start is chosen
+                        endNodeId = null;
                         document.getElementById('path-status').textContent = `START (A) set at ${nearestNode}. Right-click to set END (B).`;
                         pathLineLayer.getSource().clear(); 
                     } else {
@@ -503,36 +425,54 @@
                 }
             }
             
-            // === Context Menu Setup ===
-            const contextmenu_items = [
-                {
-                    text: 'Set as Path Start (A)',
-                    classname: 'bold path-start-item',
-                    icon: 'https://cdn-icons-png.flaticon.com/16/242/242661.png', 
-                    callback: function(obj) {
-                        handleContextSelection(obj.coordinate, 'start');
+            // --- CRITICAL FIX: CONTEXT MENU MODIFICATION ---
+            // Listen for the native contextmenu event on the map viewport
+            olMap.getViewport().addEventListener('contextmenu', function (evt) {
+                // Wait for uNmINeD to display its menu, then modify it.
+                setTimeout(function() {
+                    const contextMenuElement = document.getElementById('unmined-context-menu');
+                    if (!contextMenuElement) {
+                        // If uNmINeD's context menu HTML structure is unknown, we can't modify it.
+                        // We will check for the common ID used by uNmINeD/related map viewers.
+                        console.warn("Could not find the uNmINeD context menu element.");
+                        return;
                     }
-                },
-                {
-                    text: 'Set as Path End (B)',
-                    classname: 'bold path-end-item',
-                    icon: 'https://cdn-icons-png.flaticon.com/16/242/242662.png', 
-                    callback: function(obj) {
-                        handleContextSelection(obj.coordinate, 'end');
-                    }
-                },
-                '-' // Separator 
-            ];
-            
-            const contextmenu = new ol.control.ContextMenu({
-                width: 180,
-                defaultItems: true, 
-                items: contextmenu_items
-            });
-            olMap.addControl(contextmenu);
 
-            
-            // --- Single-Click Handler (Only handles popups) ---
+                    const viewCoord = olMap.getEventCoordinate(evt);
+                    
+                    // --- 1. Create Pathfinding Items ---
+                    const startItem = document.createElement('div');
+                    startItem.textContent = 'Set as Path Start (A)';
+                    startItem.className = 'context-menu-path-item';
+                    startItem.onclick = function() { 
+                        handleContextSelection(viewCoord, 'start');
+                        contextMenuElement.style.display = 'none'; // Hide menu after selection
+                    };
+
+                    const endItem = document.createElement('div');
+                    endItem.textContent = 'Set as Path End (B)';
+                    endItem.className = 'context-menu-path-item';
+                    endItem.onclick = function() { 
+                        handleContextSelection(viewCoord, 'end');
+                        contextMenuElement.style.display = 'none'; // Hide menu after selection
+                    };
+                    
+                    const separator = document.createElement('div');
+                    separator.className = 'context-menu-separator';
+
+                    // --- 2. Insert Items ---
+                    // Assuming uNmINeD menu items are in a div or list structure.
+                    // We will prepend our items to the menu content.
+                    contextMenuElement.prepend(separator);
+                    contextMenuElement.prepend(endItem);
+                    contextMenuElement.prepend(startItem);
+
+
+                }, 50); // Small delay to let uNmINeD render its menu first
+            });
+
+
+            // --- Single-Click Handler (FIXED: Handles all feature popups) ---
             olMap.on('click', function (evt) {
 
                 let featureClicked = false;
@@ -546,29 +486,43 @@
                 
                 if (featureClicked) {
                     const properties = feature.getProperties();
-                    let htmlContent = `<div class="poi-popup-content"><b>${properties.Name || properties.Type || 'Feature'}</b><br>`;
-                    if(properties.Name && properties.Type) {
-                        htmlContent += `Type: ${properties.Type}`;
+                    
+                    let htmlContent = `<div class="poi-popup-content">`;
+                    
+                    // Check for key descriptive attributes and list them
+                    htmlContent += `<b>${properties.Name || properties.Type || 'Feature Details'}</b>`;
+                    
+                    // Iterate through non-geometric properties (excluding 'geometry')
+                    for (const key in properties) {
+                        if (key !== 'geometry' && properties[key] !== null && properties[key] !== undefined && String(properties[key]).trim() !== "") {
+                            // Capitalize the key for display, unless it's a known special case
+                            const displayKey = key.charAt(0).toUpperCase() + key.slice(1);
+                            
+                            htmlContent += `<div>${displayKey}: ${properties[key]}</div>`;
+                        }
                     }
+
                     htmlContent += `</div>`;
                     
                     content.innerHTML = htmlContent;
                     
                     const geom = feature.getGeometry();
                     let popupCoord;
-                    if (geom.getType() === 'Point') {
-                        popupCoord = geom.getCoordinates();
+                    
+                    // Determine where to place the popup
+                    if (geom.getType() === 'Point' || geom.getType() === 'MultiPoint') {
+                        popupCoord = geom.getCoordinates().flat().slice(0, 2); // Get first point if multi
                     } else {
+                        // For LineString/Polygon, place popup at the click location
                         popupCoord = olMap.getCoordinateFromPixel(evt.pixel);
                     }
-                    overlay.setPosition(popupCoord);
 
+                    overlay.setPosition(popupCoord);
                     return; 
                 }
                 
                 // If no feature was clicked, close the popup
                 overlay.setPosition(undefined);
-
             }); 
 
 
