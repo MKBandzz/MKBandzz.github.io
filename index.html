@@ -1,400 +1,163 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <title>MKB City Map - OpenLayers Only (Final Coordinate Fix)</title>
+<meta charset="utf-8" />
+<title>MKB City Map</title>
 
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <link rel="stylesheet" type="text/css" href="lib/ol.css">
-    <script src="lib/ol.js"></script>
+<!-- OpenLayers -->
+<script src="https://cdn.jsdelivr.net/npm/ol@7.4.0/dist/ol.js"></script>
 
-    <script type="text/javascript" src="unmined.map.properties.js"></script>
-    <script type="text/javascript" src="unmined.map.regions.js"></script>
-    <script type="text/javascript" src="unmined.map.players.js"></script>
+<!-- Unmined files (ROOT-relative) -->
+<script src="./unmined.openlayers.js"></script>
+<script src="./unmined.map.properties.js"></script>
+<script src="./unmined.map.regions.js"></script>
 
-    <script type="text/javascript" src="custom.markers.js"></script>
-
-    <link href="lib/ol-contextmenu.css" rel="stylesheet">
-    <script src="lib/ol-contextmenu.iife.js"></script>
-    <script type="text/javascript" src="lib/toastify-js.js"></script>
-    <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
-    
-    <link rel="stylesheet" type="text/css" href="index.css">
-    
-    <style type="text/css">
-        html, body {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
-        }
-
-        #map {
-            height: 100%;
-            width: 100%;
-        }
-        
-        /* Styles for Popups and Controls (Unchanged) */
-        #popup {
-            position: absolute;
-            background-color: white;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-            padding: 8px;
-            border-radius: 5px;
-            border: 1px solid #cccccc;
-            bottom: 12px;
-            left: -50px;
-            min-width: 150px;
-            z-index: 2000;
-        }
-        #popup:after, #popup:before {
-            top: 100%;
-            border: solid transparent;
-            content: " ";
-            height: 0;
-            width: 0;
-            position: absolute;
-            pointer-events: none;
-        }
-        #popup:after {
-            border-top-color: white;
-            border-width: 10px;
-            left: 48px;
-            margin-left: -10px;
-        }
-        #popup:before {
-            border-top-color: #cccccc;
-            border-width: 11px;
-            left: 48px;
-            margin-left: -11px;
-        }
-        .popup-closer {
-            text-decoration: none;
-            position: absolute;
-            top: 2px;
-            right: 8px;
-            font-size: 14px;
-        }
-        .popup-closer:after {
-            content: "✖";
-        }
-        .poi-popup-content { font-size: 13px; line-height: 1.2; }
-        
-        .ol-control.layer-toggle-control {
-            top: .5em;
-            right: .5em;
-            background-color: rgba(255, 255, 255, 0.8);
-            padding: 5px 10px;
-            border-radius: 4px;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-        }
-        .layer-toggle-control label {
-            display: block;
-            font-size: 14px;
-            cursor: pointer;
-            margin-top: 3px;
-        }
-
-    </style>
-
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #000;
+}
+#map {
+  width: 100%;
+  height: 100%;
+}
+.popup {
+  background: white;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+</style>
 </head>
 
 <body>
-    <div id="map"></div>
-    <div id="popup">
-        <a href="#" id="popup-closer" class="popup-closer"></a>
-        <div id="popup-content"></div>
-    </div>
-    
-    <script type="text/javascript">
-        
-        window.onload = function() {
+<div id="map"></div>
 
-            // ----------------------------------------------------
-            // 1. OpenLayers Map Creation 
-            // ----------------------------------------------------
-            
-            if (typeof UnminedMapProperties === 'undefined' || !UnminedMapProperties.worldName) {
-                console.error("CRITICAL FAILURE: UnminedMapProperties object is missing.");
-                return;
-            }
-            
-            const worldProps = UnminedMapProperties;
-            
-            if (!Array.isArray(worldProps.zoomResolutions) || worldProps.zoomResolutions.length === 0) {
-                 console.error("CRITICAL FAILURE: The properties file is corrupt. Please ensure unmined.map.properties.js is fixed (Step 1).");
-                 return;
-            }
+<script>
+/* ===============================
+   Initialize Unmined base map
+================================ */
+const unmined = new Unmined();
+unmined.map("map", UnminedMapProperties, UnminedRegions);
 
-            document.title = worldProps.worldName + " - " + document.title; 
+const map = unmined.openlayersMap;
 
-            const tileWidth = worldProps.tileSize;
-            const tileHeight = worldProps.tileSize;
-            const center = [worldProps.centerX, -worldProps.centerZ];
-            const minZoom = worldProps.minZoom;
-            const maxZoom = worldProps.maxZoom;
-            
-            // Critical constants for coordinate transformation
-            const mapHeight = worldProps.imageHeight; 
-            const minZBlock = worldProps.minRegionZ * 512; 
+/* ===============================
+   Projections (MATCH Unmined)
+================================ */
+const viewProjection = new ol.proj.Projection({
+  code: 'VIEW',
+  units: 'pixels'
+});
+const dataProjection = new ol.proj.Projection({
+  code: 'DATA',
+  units: 'pixels'
+});
 
-            const mapExtent = [0, 0, worldProps.imageWidth, mapHeight];
-            const mapProjection = new ol.proj.Projection({
-                code: 'MKB-Minecraft', 
-                units: 'pixels',
-                extent: mapExtent,
-            });
+ol.proj.addCoordinateTransforms(
+  viewProjection,
+  dataProjection,
+  c => [c[0], -c[1]],
+  c => [c[0], -c[1]]
+);
 
-            const tileGrid = new ol.tilegrid.TileGrid({
-                extent: mapExtent,
-                resolutions: worldProps.zoomResolutions,
-                tileSize: [tileWidth, tileHeight],
-                origin: [0, 0]
-            });
-            
-            // 1A. Base Tile Layer (Confirmed as correct)
-            const tileLayer = new ol.layer.Tile({
-                title: 'Minecraft Base Map',
-                source: new ol.source.XYZ({
-                    projection: mapProjection,
-                    tileGrid: tileGrid,
-                    wrapX: false,
-                    
-                    tileUrlFunction: function(coordinate) {
-                        if (!coordinate) return undefined;
-                        const z = coordinate[0];
-                        const x = coordinate[1];
-                        const y = -coordinate[2] - 1; // Invert Y index for Z-axis
+function xyToView(x, y) {
+  // GeoJSON: [x,y] → Map: [x,z]
+  return ol.proj.transform([x, y], dataProjection, viewProjection);
+}
 
-                        if (z < 0 || x < 0 || y < 0) return undefined;
+/* ===============================
+   Roads layer
+================================ */
+const roadSource = new ol.source.Vector();
+const roadLayer = new ol.layer.Vector({
+  source: roadSource,
+  style: f => {
+    const t = f.get('Type');
+    let color = 'gray', width = 2;
+    if (t === 'Highway' || t === 'Ramp') { color = 'yellow'; width = 6; }
+    else if (t === 'Road' || t === 'Arterial') { color = 'white'; width = 4; }
+    return new ol.style.Style({
+      stroke: new ol.style.Stroke({ color, width })
+    });
+  }
+});
+map.addLayer(roadLayer);
 
-                        const xFolder = Math.floor(x / 1000);
-                        const yFolder = Math.floor(y / 1000);
-                        
-                        return `tiles/zoom.${z}/${xFolder}/${yFolder}/tile.${x}.${y}.png`;
-                    }
-                })
-            });
+fetch('./roads.geojson')
+  .then(r => r.json())
+  .then(g => {
+    g.features.forEach(f => {
+      const coords = f.geometry.coordinates.map(p => xyToView(p[0], p[1]));
+      const feat = new ol.Feature({
+        geometry: new ol.geom.LineString(coords),
+        ...f.properties
+      });
+      roadSource.addFeature(feat);
+    });
+    console.log("Roads loaded:", roadSource.getFeatures().length);
+  });
 
-            // 1B. Create the OpenLayers Map Instance
-            const olMap = new ol.Map({
-                target: 'map',
-                layers: [tileLayer],
-                view: new ol.View({
-                    projection: mapProjection,
-                    center: center,
-                    zoom: worldProps.defaultZoom,
-                    minZoom: minZoom,
-                    maxZoom: maxZoom
-                })
-            });
-            
-            console.log("SUCCESS: Tiles loading. Applying final vector sign-flip fix...");
-            
-            // *** FINAL VECTOR FIX: SIMPLE SIGN FLIP ***
-            // This is the simplest way to flip the coordinate and should work if the tiles are loaded Y-down.
-            function invertZ(coordinates) {
-                if (typeof coordinates[0] === 'number') {
-                    // Base case: [X, Z] -> [X, -Z]
-                    return [coordinates[0], -coordinates[1]]; 
-                } else {
-                    return coordinates.map(invertZ);
-                }
-            }
+/* ===============================
+   Properties (POIs)
+================================ */
+const poiSource = new ol.source.Vector();
+const poiLayer = new ol.layer.Vector({
+  source: poiSource,
+  style: f => new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 6,
+      fill: new ol.style.Fill({ color: 'red' }),
+      stroke: new ol.style.Stroke({ color: '#000', width: 1 })
+    })
+  })
+});
+map.addLayer(poiLayer);
 
-            // Function to load GeoJSON, invert coordinates, and create a source (UNCHANGED)
-            function createVectorSource(url) {
-                const vectorSource = new ol.source.Vector();
+fetch('./properties.geojson')
+  .then(r => r.json())
+  .then(g => {
+    g.features.forEach(f => {
+      if (f.geometry.type !== 'Polygon') return;
 
-                fetch(url)
-                    .then(response => response.json())
-                    .then(data => {
-                        const format = new ol.format.GeoJSON();
-                        // Read features without projection transformation first
-                        const features = format.readFeatures(data, {
-                            dataProjection: 'EPSG:4326', 
-                            featureProjection: 'EPSG:4326'
-                        });
+      const ring = f.geometry.coordinates[0];
+      let sx = 0, sy = 0;
+      ring.forEach(p => { sx += p[0]; sy += p[1]; });
+      const cx = sx / ring.length;
+      const cy = sy / ring.length;
 
-                        features.forEach(feature => {
-                            const geometry = feature.getGeometry();
-                            if (geometry) {
-                                // Apply the definitive sign-flip correction
-                                geometry.setCoordinates(invertZ(geometry.getCoordinates()));
-                            }
-                        });
-                        
-                        vectorSource.addFeatures(features);
-                        console.log(`Vector Layer loaded and inverted successfully: ${url}`);
-                    })
-                    .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
-                
-                return vectorSource;
-            }
+      const point = new ol.Feature({
+        geometry: new ol.geom.Point(xyToView(cx, cy)),
+        Name: f.properties.Name,
+        Type: f.properties.Type
+      });
 
+      poiSource.addFeature(point);
+    });
+    console.log("POIs loaded:", poiSource.getFeatures().length);
+  });
 
-            // --------------------------
-            // 2. OpenLayers Vector Layer Setup (Roads) 
-            // --------------------------
-            
-            const roadStyleFunction = function(feature) {
-                return new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: 'yellow', width: 5 }),
-                });
-            };
+/* ===============================
+   Click popup
+================================ */
+const overlayEl = document.createElement('div');
+overlayEl.className = 'popup';
+const overlay = new ol.Overlay({ element: overlayEl, offset: [0, -10] });
+map.addOverlay(overlay);
 
-            const roadSource = createVectorSource('roads.geojson');
-            
-            const roadLayer = new ol.layer.Vector({
-                title: 'Roads Network',
-                source: roadSource,
-                style: roadStyleFunction,
-                visible: true,
-                zIndex: 999 
-            });
-
-            olMap.addLayer(roadLayer);
-
-
-            // --------------------------
-            // 3. OpenLayers Vector Layer Setup (Properties/POIs)
-            // --------------------------
-            
-            const poiStyleFunction = function(feature) {
-                if (feature.getGeometry().getType() === 'Polygon') {
-                    return new ol.style.Style({
-                        stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
-                        fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' })
-                    });
-                } else {
-                    return new ol.style.Style({
-                        image: new ol.style.Circle({
-                            radius: 8, fill: new ol.style.Fill({ color: 'lime' }), 
-                            stroke: new ol.style.Stroke({ color: 'black', width: 2 })
-                        }),
-                    });
-                }
-            };
-            
-            const poiSource = createVectorSource('properties.geojson');
-            
-            const poiLayer = new ol.layer.Vector({
-                title: 'Properties/POIs',
-                source: poiSource,
-                style: poiStyleFunction,
-                visible: true,
-                zIndex: 1000 
-            });
-
-            olMap.addLayer(poiLayer);
-            
-            
-            // Re-render layer on zoom change to update text visibility (optional, but good practice)
-            olMap.getView().on('change:resolution', function() {
-                roadLayer.changed();
-                poiLayer.changed();
-            });
-
-
-            // --------------------------
-            // 4. Custom OpenLayers Layer Control (UNCHANGED)
-            // --------------------------
-            const layerControlDiv = document.createElement('div');
-            layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
-
-            const roadInput = document.createElement('input');
-            roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
-            roadInput.onchange = function() { roadLayer.setVisible(this.checked); };
-            const roadLabel = document.createElement('label');
-            roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
-
-            const poiInput = document.createElement('input');
-            poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
-            poiInput.onchange = function() { poiLayer.setVisible(this.checked); };
-            const poiLabel = document.createElement('label');
-            poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
-
-            layerControlDiv.appendChild(roadInput);
-            layerControlDiv.appendChild(roadLabel);
-            layerControlDiv.appendChild(poiInput);
-            layerControlDiv.appendChild(poiLabel);
-
-            olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
-
-            // --------------------------
-            // 5. OpenLayers Popup/Interaction Logic (UNCHANGED)
-            // --------------------------
-            const container = document.getElementById('popup');
-            const content = document.getElementById('popup-content');
-            const closer = document.getElementById('popup-closer');
-            
-            const overlay = new ol.Overlay({
-                element: container,
-                autoPan: true,
-                autoPanAnimation: { duration: 250 },
-            });
-            olMap.addOverlay(overlay);
-            
-            closer.onclick = function () {
-                overlay.setPosition(undefined);
-                closer.blur();
-                return false;
-            };
-
-            olMap.on('click', function (evt) {
-                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
-                    const layerTitle = layer ? layer.get('title') : null;
-                    if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
-                         return feature;
-                    }
-                });
-                
-                if (feature) {
-                    const properties = feature.getProperties();
-                    let htmlContent = '';
-
-                    if (properties.Type && (properties.Type === 'Highway' || properties.Type === 'Road' || properties.Type === 'Street' || properties.Type === 'Ramp')) {
-                        htmlContent = `
-                            <div class="poi-popup-content">
-                                <b>${properties.Name || 'Unnamed Road'}</b><br/>
-                                Type: ${properties.Type || 'N/A'}
-                            </div>
-                        `;
-                    } else if (properties.Address || properties.Name) {
-                        htmlContent = `
-                            <div class="poi-popup-content">
-                                <b>${properties.Name || 'Unnamed Property'}</b><br/>
-                                Address: ${properties.Address || 'N/A'}
-                            </div>
-                        `;
-                    }
-
-                    if (htmlContent) {
-                        content.innerHTML = htmlContent;
-                        
-                        const geom = feature.getGeometry();
-                        let popupCoord;
-                        if (geom.getType() === 'LineString') {
-                            popupCoord = geom.getCoordinateAt(0.5);
-                        } else if (geom.getType() === 'Polygon') {
-                            popupCoord = ol.extent.getCenter(geom.getExtent());
-                        } else if (geom.getType() === 'Point') {
-                            popupCoord = geom.getCoordinates();
-                        }
-                        
-                        overlay.setPosition(popupCoord);
-                    } else {
-                        overlay.setPosition(undefined);
-                    }
-
-                } else {
-                    overlay.setPosition(undefined);
-                }
-            });
-
-        }; // End of window.onload
-    </script>
+map.on('singleclick', e => {
+  overlay.setPosition(undefined);
+  map.forEachFeatureAtPixel(e.pixel, f => {
+    overlayEl.innerHTML =
+      `<b>${f.get('Name') || ''}</b><br>${f.get('Type') || ''}`;
+    overlay.setPosition(e.coordinate);
+    return true;
+  });
+});
+</script>
 </body>
 </html>
