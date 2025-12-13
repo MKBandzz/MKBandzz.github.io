@@ -117,6 +117,15 @@
             // --------------------------
             // 1. OpenLayers Initialization (uNmINeD)
             // --------------------------
+            
+            // DIAGNOSTIC CHECK: Is the properties object loaded?
+            if (typeof UnminedMapProperties === 'undefined' || !UnminedMapProperties.worldName) {
+                console.error("DIAGNOSTIC FAILURE: UnminedMapProperties object is missing or corrupted.");
+                return;
+            } else {
+                console.log("DIAGNOSTIC SUCCESS: UnminedMapProperties loaded for world: " + UnminedMapProperties.worldName);
+            }
+
             document.title = UnminedMapProperties.worldName + " - " + document.title; 
 
             if (UnminedCustomMarkers && UnminedCustomMarkers.isEnabled && UnminedCustomMarkers.markers) {
@@ -129,21 +138,16 @@
 
             const mapElement = document.getElementById('map');
             const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
-            const olMap = unmined.map; 
+            const olMap = unmined.map; // <-- This is what is failing to be set.
             
-            // CRITICAL CHECK: If the base map failed to initialize, stop execution.
             if (!olMap) {
                 console.error("CRITICAL ERROR: uNmINeD base map failed to initialize.");
                 return; 
             }
             
-            // CRITICAL CHANGE: Use explicit EPSG:3857 for the data projection, 
-            // as this is what your GeoJSON file declares in its header.
+            // The rest of the script (Vector Layers) only runs if the map successfully initializes.
             const dataProjectionCode = 'EPSG:3857';
-            
-            // The projection defined by uNmINeD for its view coordinates
             const viewProjection = olMap.getView().getProjection();
-
 
             // Function to apply the Z-inversion (Y-coordinate in OpenLayers)
             function invertZ(coordinates) {
@@ -164,214 +168,4 @@
             // TEMPORARY HIGH-CONTRAST STYLE FOR DEBUGGING (Yellow lines)
             const roadStyleFunction = function(feature) {
                 return new ol.style.Style({
-                    stroke: new ol.style.Stroke({
-                        color: 'yellow', 
-                        width: 5,
-                    }),
-                });
-            };
-
-            const roadSource = new ol.source.Vector({
-                url: 'roads.geojson', // Simple path, root directory confirmed
-                format: new ol.format.GeoJSON({
-                    // Use the GeoJSON declared projection code
-                    dataProjection: dataProjectionCode, 
-                    // Tell OpenLayers to convert the feature coordinates into the map's view projection
-                    featureProjection: viewProjection 
-                }),
-            });
-            
-            const roadLayer = new ol.layer.Vector({
-                title: 'Roads Network',
-                source: roadSource,
-                style: roadStyleFunction,
-                visible: true,
-                zIndex: 999 
-            });
-
-            olMap.addLayer(roadLayer);
-
-            // Listener to handle coordinate inversion *after* data is loaded
-            roadSource.once('featuresloadend', function(evt) {
-                console.log(`ROAD LAYER: Finished loading. Features: ${roadSource.getFeatures().length}`);
-                
-                roadSource.getFeatures().forEach(feature => {
-                    const geometry = feature.getGeometry();
-                    if (geometry) {
-                        geometry.setCoordinates(invertZ(geometry.getCoordinates()));
-                    }
-                });
-                
-                if (roadSource.getFeatures().length > 0) {
-                     console.log("Roads loaded successfully, vectors should be visible.");
-                } else {
-                    console.log("Roads GeoJSON loaded but contains 0 features. Check file content.");
-                }
-            });
-
-
-            // --------------------------
-            // 3. OpenLayers Vector Layer Setup (Properties/POIs)
-            // --------------------------
-            
-            // TEMPORARY HIGH-CONTRAST STYLE FOR DEBUGGING (Lime points/Magenta polygons)
-            const poiStyleFunction = function(feature) {
-                if (feature.getGeometry().getType() === 'Polygon') {
-                    return new ol.style.Style({
-                        stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
-                        fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' })
-                    });
-                } else {
-                    return new ol.style.Style({
-                        image: new ol.style.Circle({
-                            radius: 8, 
-                            fill: new ol.style.Fill({ color: 'lime' }), 
-                            stroke: new ol.style.Stroke({ color: 'black', width: 2 })
-                        }),
-                    });
-                }
-            };
-            
-            const poiSource = new ol.source.Vector({
-                url: 'properties.geojson', // Simple path, root directory confirmed
-                format: new ol.format.GeoJSON({
-                    dataProjection: dataProjectionCode, 
-                    featureProjection: viewProjection 
-                }),
-            });
-            
-            const poiLayer = new ol.layer.Vector({
-                title: 'Properties/POIs',
-                source: poiSource,
-                style: poiStyleFunction,
-                visible: true,
-                zIndex: 1000 
-            });
-
-            olMap.addLayer(poiLayer);
-            
-            poiSource.once('featuresloadend', function(evt) {
-                console.log(`POI LAYER: Finished loading. Features: ${poiSource.getFeatures().length}`);
-                
-                poiSource.getFeatures().forEach(feature => {
-                    const geometry = feature.getGeometry();
-                    if (geometry) {
-                        geometry.setCoordinates(invertZ(geometry.getCoordinates()));
-                    }
-                });
-                
-                if (poiSource.getFeatures().length > 0) {
-                     console.log("Properties loaded successfully, vectors should be visible.");
-                } else {
-                    console.log("Properties GeoJSON loaded but contains 0 features. Check file content.");
-                }
-            });
-
-            
-            // Re-render layer on zoom change to update text visibility (optional, but good practice)
-            olMap.getView().on('change:resolution', function() {
-                roadLayer.changed();
-                poiLayer.changed();
-            });
-
-
-            // --------------------------
-            // 4. Custom OpenLayers Layer Control (Unchanged)
-            // --------------------------
-            const layerControlDiv = document.createElement('div');
-            layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
-
-            const roadInput = document.createElement('input');
-            roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
-            roadInput.onchange = function() { roadLayer.setVisible(this.checked); };
-            const roadLabel = document.createElement('label');
-            roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
-
-            const poiInput = document.createElement('input');
-            poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
-            poiInput.onchange = function() { poiLayer.setVisible(this.checked); };
-            const poiLabel = document.createElement('label');
-            poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
-
-            layerControlDiv.appendChild(roadInput);
-            layerControlDiv.appendChild(roadLabel);
-            layerControlDiv.appendChild(poiInput);
-            layerControlDiv.appendChild(poiLabel);
-
-            olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
-
-            // --------------------------
-            // 5. OpenLayers Popup/Interaction Logic (Unchanged)
-            // --------------------------
-            const container = document.getElementById('popup');
-            const content = document.getElementById('popup-content');
-            const closer = document.getElementById('popup-closer');
-            
-            const overlay = new ol.Overlay({
-                element: container,
-                autoPan: true,
-                autoPanAnimation: { duration: 250 },
-            });
-            olMap.addOverlay(overlay);
-            
-            closer.onclick = function () {
-                overlay.setPosition(undefined);
-                closer.blur();
-                return false;
-            };
-
-            olMap.on('click', function (evt) {
-                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
-                    const layerTitle = layer ? layer.get('title') : null;
-                    if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
-                         return feature;
-                    }
-                });
-                
-                if (feature) {
-                    const properties = feature.getProperties();
-                    let htmlContent = '';
-
-                    if (properties.Type && (properties.Type === 'Highway' || properties.Type === 'Road' || properties.Type === 'Street' || properties.Type === 'Ramp')) {
-                        htmlContent = `
-                            <div class="poi-popup-content">
-                                <b>${properties.Name || 'Unnamed Road'}</b><br/>
-                                Type: ${properties.Type || 'N/A'}
-                            </div>
-                        `;
-                    } else if (properties.Address || properties.Name) {
-                        htmlContent = `
-                            <div class="poi-popup-content">
-                                <b>${properties.Name || 'Unnamed Property'}</b><br/>
-                                Address: ${properties.Address || 'N/A'}
-                            </div>
-                        `;
-                    }
-
-                    if (htmlContent) {
-                        content.innerHTML = htmlContent;
-                        
-                        const geom = feature.getGeometry();
-                        let popupCoord;
-                        if (geom.getType() === 'LineString') {
-                            popupCoord = geom.getCoordinateAt(0.5);
-                        } else if (geom.getType() === 'Polygon') {
-                            popupCoord = ol.extent.getCenter(geom.getExtent());
-                        } else if (geom.getType() === 'Point') {
-                            popupCoord = geom.getCoordinates();
-                        }
-                        
-                        overlay.setPosition(popupCoord);
-                    } else {
-                        overlay.setPosition(undefined);
-                    }
-
-                } else {
-                    overlay.setPosition(undefined);
-                }
-            });
-
-        }; // End of window.onload
-    </script>
-</body>
-</html>
+                    stroke: new
