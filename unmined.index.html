@@ -113,18 +113,18 @@
         window.onload = function() {
 
             // ----------------------------------------------------
-            // 1. OpenLayers Map Creation (BYPASSING unmined.js)
+            // 1. OpenLayers Map Creation 
             // ----------------------------------------------------
             
             if (typeof UnminedMapProperties === 'undefined' || !UnminedMapProperties.worldName) {
-                console.error("CRITICAL FAILURE: UnminedMapProperties object is missing. Cannot proceed.");
+                console.error("CRITICAL FAILURE: UnminedMapProperties object is missing.");
                 return;
             }
             
             const worldProps = UnminedMapProperties;
             
             if (!Array.isArray(worldProps.zoomResolutions) || worldProps.zoomResolutions.length === 0) {
-                 console.error("CRITICAL FAILURE: The properties file is corrupt. Please ensure unmined.map.properties.js is fixed.");
+                 console.error("CRITICAL FAILURE: The properties file is corrupt.");
                  return;
             }
 
@@ -150,7 +150,7 @@
                 origin: [0, 0]
             });
             
-            // 1A. Create the Base Tile Layer (uNmINeD Tiles) (Tile logic is correct now)
+            // 1A. Base Tile Layer
             const tileLayer = new ol.layer.Tile({
                 title: 'Minecraft Base Map',
                 source: new ol.source.XYZ({
@@ -160,17 +160,12 @@
                     
                     tileUrlFunction: function(coordinate) {
                         if (!coordinate) return undefined;
-                        
-                        // Z (Zoom), X (Tile index), Y (Tile index)
                         const z = coordinate[0];
                         const x = coordinate[1];
-                        
-                        // Invert the OpenLayers Y index to get the Minecraft map's Y (Z-axis) index
-                        const y = -coordinate[2] - 1; 
+                        const y = -coordinate[2] - 1; // Invert Y index for Z-axis
 
                         if (z < 0 || x < 0 || y < 0) return undefined;
 
-                        // Standard uNmINeD folder structure logic
                         const xFolder = Math.floor(x / 1000);
                         const yFolder = Math.floor(y / 1000);
                         
@@ -192,14 +187,49 @@
                 })
             });
             
-            console.log("SUCCESS: OpenLayers map initialized and tiles loading. Fixing vector orientation...");
+            console.log("SUCCESS: OpenLayers map initialized. Applying final vector coordinate fix...");
             
-            // Define necessary variables for GeoJSON loading
-            const dataProjectionCode = 'EPSG:3857';
-            const viewProjection = olMap.getView().getProjection();
+            // Re-introduce the coordinate inversion function for the vector data ONLY
+            function invertZ(coordinates) {
+                if (typeof coordinates[0] === 'number') {
+                    // Base case: [X, Z] -> [X, -Z]
+                    return [coordinates[0], -coordinates[1]];
+                } else {
+                    // Recursive case: array of points/arrays
+                    return coordinates.map(invertZ);
+                }
+            }
 
-            // *** MANUAL INVERSION FUNCTION REMOVED ***
-            // *** The GeoJSON format object will handle the projection. ***
+            // Function to load GeoJSON, invert coordinates, and create a source
+            function createVectorSource(url) {
+                const vectorSource = new ol.source.Vector();
+
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        const format = new ol.format.GeoJSON();
+                        const features = format.readFeatures(data, {
+                            // Specify that the GeoJSON data is in a generic projection 
+                            // and needs to be manually transformed later.
+                            dataProjection: 'EPSG:4326', 
+                            featureProjection: 'EPSG:4326'
+                        });
+
+                        features.forEach(feature => {
+                            const geometry = feature.getGeometry();
+                            if (geometry) {
+                                // Apply the Minecraft Z-axis to OpenLayers Y-axis inversion
+                                geometry.setCoordinates(invertZ(geometry.getCoordinates()));
+                            }
+                        });
+                        
+                        vectorSource.addFeatures(features);
+                        console.log(`Vector Layer loaded successfully: ${url}`);
+                    })
+                    .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
+                
+                return vectorSource;
+            }
 
 
             // --------------------------
@@ -212,14 +242,7 @@
                 });
             };
 
-            const roadSource = new ol.source.Vector({
-                url: 'roads.geojson',
-                // Tell OpenLayers to convert GeoJSON data (X, Z) into our view's projection (X, -Z)
-                format: new ol.format.GeoJSON({ 
-                    dataProjection: dataProjectionCode, 
-                    featureProjection: viewProjection 
-                }),
-            });
+            const roadSource = createVectorSource('roads.geojson');
             
             const roadLayer = new ol.layer.Vector({
                 title: 'Roads Network',
@@ -230,11 +253,6 @@
             });
 
             olMap.addLayer(roadLayer);
-
-            roadSource.once('featuresloadend', function(evt) {
-                // No manual coordinate inversion here. Let the projection handle it.
-                console.log(`ROAD LAYER: Finished loading. Features: ${roadSource.getFeatures().length}`);
-            });
 
 
             // --------------------------
@@ -257,13 +275,7 @@
                 }
             };
             
-            const poiSource = new ol.source.Vector({
-                url: 'properties.geojson',
-                format: new ol.format.GeoJSON({ 
-                    dataProjection: dataProjectionCode, 
-                    featureProjection: viewProjection 
-                }),
-            });
+            const poiSource = createVectorSource('properties.geojson');
             
             const poiLayer = new ol.layer.Vector({
                 title: 'Properties/POIs',
@@ -275,11 +287,6 @@
 
             olMap.addLayer(poiLayer);
             
-            poiSource.once('featuresloadend', function(evt) {
-                 // No manual coordinate inversion here. Let the projection handle it.
-                console.log(`POI LAYER: Finished loading. Features: ${poiSource.getFeatures().length}`);
-            });
-
             
             // Re-render layer on zoom change to update text visibility (optional, but good practice)
             olMap.getView().on('change:resolution', function() {
