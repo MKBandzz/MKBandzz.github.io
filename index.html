@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - Official uNmINeD OpenLayers Setup</title>
+    <title>MKB City Map - Official uNmINeD OpenLayers Setup (Loading Fix)</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -11,9 +11,9 @@
     <script src="lib/ol.js"></script>
 
     <script type="text/javascript" src="unmined.map.properties.js"></script>
-    <script type="text-type="text/javascript" src="unmined.map.regions.js"></script>
+    <script type="text/type="text/javascript" src="unmined.map.regions.js"></script>
     <script type="text/javascript" src="unmined.map.players.js"></script>
-    
+
     <script type="text/javascript" src="unmined.js"></script>
 
     <link href="lib/ol-contextmenu.css" rel="stylesheet">
@@ -36,7 +36,7 @@
             width: 100%;
         }
         
-        /* Styles for Popups and Controls (Kept from previous steps) */
+        /* Styles for Popups and Controls (Kept for consistency) */
         #popup {
             position: absolute;
             background-color: white;
@@ -116,8 +116,9 @@
             // 1. Initialize uNmINeD Map (Handles tiles and projection)
             // ----------------------------------------------------
             
+            // Re-checking the variable existence now that the files are loaded in order
             if (typeof UnminedMapProperties === 'undefined' || typeof UnminedRegions === 'undefined') {
-                console.error("CRITICAL FAILURE: uNmINeD properties or regions are missing.");
+                console.error("CRITICAL FAILURE: UnminedMapProperties or UnminedRegions is still missing after loading all scripts.");
                 return;
             }
             if (typeof Unmined === 'undefined') {
@@ -302,13 +303,7 @@
                 }
             });
             
-            // Allow the unmined.js context menu to also use these vector layers
-            if(unminedMap.createContextMenu) {
-                // Remove the standard context menu, if added by the constructor, and re-add our custom one
-                // The context menu will already be part of the map object from the Unmined class constructor
-                // but if you want to modify it, you would do it here. 
-                // For now, we will assume the default one is fine.
-            }
+            // The unmined.js file handles context menu and other features automatically
 
         }; // End of window.onload
     </script>
