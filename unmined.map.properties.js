@@ -14,5 +14,17 @@ var UnminedMapProperties = {
     enableGrid: true,
     showGrid: true,
     centerX: 0,
-    centerZ: 0
+    centerZ: 0,
+    
+    // --- CRITICAL FIXES ADDED BELOW ---
+    // 1. Zoom resolutions calculated for minZoom 0 to maxZoom 3:
+    zoomResolutions: [1.0, 0.5, 0.25, 0.125],
+    
+    // 2. Standard uNmINeD tile size:
+    tileSize: 256,
+    
+    // 3. Calculated map dimensions based on region size (28x29 regions * 512 blocks/region):
+    imageWidth: 14336,
+    imageHeight: 14848
+    // ----------------------------------
 }

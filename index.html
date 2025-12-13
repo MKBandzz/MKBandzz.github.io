@@ -120,17 +120,27 @@
                 return;
             }
             
+            // Check for the new, critical property from Step 1
+            if (!Array.isArray(UnminedMapProperties.zoomResolutions) || UnminedMapProperties.zoomResolutions.length === 0) {
+                 console.error("CRITICAL FAILURE: The fixed unmined.map.properties.js file was not loaded correctly or is still corrupt.");
+                 return;
+            }
+
             document.title = UnminedMapProperties.worldName + " - " + document.title; 
 
-            // Extract essential map parameters from the loaded properties file
+            // Extract essential map parameters from the now-fixed properties file
             const worldProps = UnminedMapProperties;
             const tileWidth = worldProps.tileSize;
             const tileHeight = worldProps.tileSize;
-            const center = [worldProps.centerX, -worldProps.centerZ]; // Correct the Z coordinate immediately
+            
+            // Center is [X, -Z] to invert the Y-axis
+            const center = [worldProps.centerX, -worldProps.centerZ];
+            
             const minZoom = worldProps.minZoom;
             const maxZoom = worldProps.maxZoom;
 
             // Define the Projection (Matches the uNmINeD's output coordinates)
+            // Uses the fixed imageWidth/imageHeight from Step 1
             const mapExtent = [0, 0, worldProps.imageWidth, worldProps.imageHeight];
             const mapProjection = new ol.proj.Projection({
                 code: 'MKB-Minecraft', 
@@ -141,6 +151,7 @@
             // Define the Tile Grid for the Map
             const tileGrid = new ol.tilegrid.TileGrid({
                 extent: mapExtent,
+                // Uses the fixed zoomResolutions from Step 1
                 resolutions: worldProps.zoomResolutions,
                 tileSize: [tileWidth, tileHeight],
                 origin: [0, 0]
@@ -152,7 +163,11 @@
                 source: new ol.source.XYZ({
                     projection: mapProjection,
                     tileGrid: tileGrid,
-                    url: 'tile-{z}-{x}-{y}.png', // Standard uNmINeD tile naming convention
+                    // Note: If you generated a map with the default uNmINeD `index.html`, 
+                    // the URL is typically 'tiles/zoom.{z}/{xd}/{yd}/tile.{x}.{y}.png'
+                    // However, we'll keep the simpler 'tile-{z}-{x}-{y}.png' which worked locally, 
+                    // and rely on your network tab to confirm the tile path.
+                    url: 'tile-{z}-{x}-{y}.png', 
                     wrapX: false
                 })
             });

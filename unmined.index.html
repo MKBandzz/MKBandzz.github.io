@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - OpenLayers Only</title>
+    <title>MKB City Map - OpenLayers Only (Pure OL)</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -15,8 +15,6 @@
     <script type="text/javascript" src="unmined.map.players.js"></script>
 
     <script type="text/javascript" src="custom.markers.js"></script>
-    <script type="text/javascript" src="unmined.js"></script>
-
     <link href="lib/ol-contextmenu.css" rel="stylesheet">
     <script src="lib/ol-contextmenu.iife.js"></script>
     <script type="text/javascript" src="lib/toastify-js.js"></script>
@@ -36,8 +34,8 @@
             height: 100%;
             width: 100%;
         }
-
-        /* Styling for the OpenLayers Popup */
+        
+        /* Styles for Popups and Controls (Unchanged) */
         #popup {
             position: absolute;
             background-color: white;
@@ -83,7 +81,6 @@
         }
         .poi-popup-content { font-size: 13px; line-height: 1.2; }
         
-        /* Custom Control for Layer Switching (Top Right) */
         .ol-control.layer-toggle-control {
             top: .5em;
             right: .5em;
@@ -114,38 +111,83 @@
         
         window.onload = function() {
 
-            // --------------------------
-            // 1. OpenLayers Initialization (uNmINeD)
-            // --------------------------
+            // ----------------------------------------------------
+            // 1. OpenLayers Map Creation (BYPASSING unmined.js)
+            // ----------------------------------------------------
             
-            // DIAGNOSTIC CHECK: Is the properties object loaded?
             if (typeof UnminedMapProperties === 'undefined' || !UnminedMapProperties.worldName) {
-                console.error("DIAGNOSTIC FAILURE: UnminedMapProperties object is missing or corrupted.");
+                console.error("CRITICAL FAILURE: UnminedMapProperties object is missing. Cannot proceed.");
                 return;
-            } else {
-                console.log("DIAGNOSTIC SUCCESS: UnminedMapProperties loaded for world: " + UnminedMapProperties.worldName);
+            }
+            
+            // Check for the new, critical property from Step 1
+            if (!Array.isArray(UnminedMapProperties.zoomResolutions) || UnminedMapProperties.zoomResolutions.length === 0) {
+                 console.error("CRITICAL FAILURE: The fixed unmined.map.properties.js file was not loaded correctly or is still corrupt.");
+                 return;
             }
 
             document.title = UnminedMapProperties.worldName + " - " + document.title; 
 
-            if (UnminedCustomMarkers && UnminedCustomMarkers.isEnabled && UnminedCustomMarkers.markers) {
-                UnminedMapProperties.markers = UnminedMapProperties.markers.concat(UnminedCustomMarkers.markers);
-            }
+            // Extract essential map parameters from the now-fixed properties file
+            const worldProps = UnminedMapProperties;
+            const tileWidth = worldProps.tileSize;
+            const tileHeight = worldProps.tileSize;
             
-            if (UnminedPlayers && UnminedPlayers.length > 0) {
-                UnminedMapProperties.playerMarkers = Unmined.createPlayerMarkers(UnminedPlayers);
-            }
+            // Center is [X, -Z] to invert the Y-axis
+            const center = [worldProps.centerX, -worldProps.centerZ];
+            
+            const minZoom = worldProps.minZoom;
+            const maxZoom = worldProps.maxZoom;
 
-            const mapElement = document.getElementById('map');
-            const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
-            const olMap = unmined.map; // <-- This is what is failing to be set.
+            // Define the Projection (Matches the uNmINeD's output coordinates)
+            // Uses the fixed imageWidth/imageHeight from Step 1
+            const mapExtent = [0, 0, worldProps.imageWidth, worldProps.imageHeight];
+            const mapProjection = new ol.proj.Projection({
+                code: 'MKB-Minecraft', 
+                units: 'pixels',
+                extent: mapExtent,
+            });
+
+            // Define the Tile Grid for the Map
+            const tileGrid = new ol.tilegrid.TileGrid({
+                extent: mapExtent,
+                // Uses the fixed zoomResolutions from Step 1
+                resolutions: worldProps.zoomResolutions,
+                tileSize: [tileWidth, tileHeight],
+                origin: [0, 0]
+            });
             
-            if (!olMap) {
-                console.error("CRITICAL ERROR: uNmINeD base map failed to initialize.");
-                return; 
-            }
+            // 1A. Create the Base Tile Layer (uNmINeD Tiles)
+            const tileLayer = new ol.layer.Tile({
+                title: 'Minecraft Base Map',
+                source: new ol.source.XYZ({
+                    projection: mapProjection,
+                    tileGrid: tileGrid,
+                    // Note: If you generated a map with the default uNmINeD `index.html`, 
+                    // the URL is typically 'tiles/zoom.{z}/{xd}/{yd}/tile.{x}.{y}.png'
+                    // However, we'll keep the simpler 'tile-{z}-{x}-{y}.png' which worked locally, 
+                    // and rely on your network tab to confirm the tile path.
+                    url: 'tile-{z}-{x}-{y}.png', 
+                    wrapX: false
+                })
+            });
+
+            // 1B. Create the OpenLayers Map Instance
+            const olMap = new ol.Map({
+                target: 'map',
+                layers: [tileLayer],
+                view: new ol.View({
+                    projection: mapProjection,
+                    center: center,
+                    zoom: worldProps.defaultZoom,
+                    minZoom: minZoom,
+                    maxZoom: maxZoom
+                })
+            });
             
-            // The rest of the script (Vector Layers) only runs if the map successfully initializes.
+            console.log("SUCCESS: OpenLayers map initialized directly. Proceeding with vectors.");
+            
+            // Define necessary variables for GeoJSON loading
             const dataProjectionCode = 'EPSG:3857';
             const viewProjection = olMap.getView().getProjection();
 
@@ -168,4 +210,212 @@
             // TEMPORARY HIGH-CONTRAST STYLE FOR DEBUGGING (Yellow lines)
             const roadStyleFunction = function(feature) {
                 return new ol.style.Style({
-                    stroke: new
+                    stroke: new ol.style.Stroke({
+                        color: 'yellow', 
+                        width: 5,
+                    }),
+                });
+            };
+
+            const roadSource = new ol.source.Vector({
+                url: 'roads.geojson',
+                format: new ol.format.GeoJSON({
+                    dataProjection: dataProjectionCode, 
+                    featureProjection: viewProjection 
+                }),
+            });
+            
+            const roadLayer = new ol.layer.Vector({
+                title: 'Roads Network',
+                source: roadSource,
+                style: roadStyleFunction,
+                visible: true,
+                zIndex: 999 
+            });
+
+            olMap.addLayer(roadLayer);
+
+            // Listener to handle coordinate inversion *after* data is loaded
+            roadSource.once('featuresloadend', function(evt) {
+                console.log(`ROAD LAYER: Finished loading. Features: ${roadSource.getFeatures().length}`);
+                
+                roadSource.getFeatures().forEach(feature => {
+                    const geometry = feature.getGeometry();
+                    if (geometry) {
+                        geometry.setCoordinates(invertZ(geometry.getCoordinates()));
+                    }
+                });
+                
+                if (roadSource.getFeatures().length > 0) {
+                     console.log("Roads loaded successfully, vectors should be visible.");
+                } else {
+                    console.log("Roads GeoJSON loaded but contains 0 features. Check file content.");
+                }
+            });
+
+
+            // --------------------------
+            // 3. OpenLayers Vector Layer Setup (Properties/POIs)
+            // --------------------------
+            
+            // TEMPORARY HIGH-CONTRAST STYLE FOR DEBUGGING (Lime points/Magenta polygons)
+            const poiStyleFunction = function(feature) {
+                if (feature.getGeometry().getType() === 'Polygon') {
+                    return new ol.style.Style({
+                        stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
+                        fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' })
+                    });
+                } else {
+                    return new ol.style.Style({
+                        image: new ol.style.Circle({
+                            radius: 8, 
+                            fill: new ol.style.Fill({ color: 'lime' }), 
+                            stroke: new ol.style.Stroke({ color: 'black', width: 2 })
+                        }),
+                    });
+                }
+            };
+            
+            const poiSource = new ol.source.Vector({
+                url: 'properties.geojson',
+                format: new ol.format.GeoJSON({
+                    dataProjection: dataProjectionCode, 
+                    featureProjection: viewProjection 
+                }),
+            });
+            
+            const poiLayer = new ol.layer.Vector({
+                title: 'Properties/POIs',
+                source: poiSource,
+                style: poiStyleFunction,
+                visible: true,
+                zIndex: 1000 
+            });
+
+            olMap.addLayer(poiLayer);
+            
+            poiSource.once('featuresloadend', function(evt) {
+                console.log(`POI LAYER: Finished loading. Features: ${poiSource.getFeatures().length}`);
+                
+                poiSource.getFeatures().forEach(feature => {
+                    const geometry = feature.getGeometry();
+                    if (geometry) {
+                        geometry.setCoordinates(invertZ(geometry.getCoordinates()));
+                    }
+                });
+                
+                if (poiSource.getFeatures().length > 0) {
+                     console.log("Properties loaded successfully, vectors should be visible.");
+                } else {
+                    console.log("Properties GeoJSON loaded but contains 0 features. Check file content.");
+                }
+            });
+
+            
+            // Re-render layer on zoom change to update text visibility (optional, but good practice)
+            olMap.getView().on('change:resolution', function() {
+                roadLayer.changed();
+                poiLayer.changed();
+            });
+
+
+            // --------------------------
+            // 4. Custom OpenLayers Layer Control (Unchanged)
+            // --------------------------
+            const layerControlDiv = document.createElement('div');
+            layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
+
+            const roadInput = document.createElement('input');
+            roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
+            roadInput.onchange = function() { roadLayer.setVisible(this.checked); };
+            const roadLabel = document.createElement('label');
+            roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
+
+            const poiInput = document.createElement('input');
+            poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
+            poiInput.onchange = function() { poiLayer.setVisible(this.checked); };
+            const poiLabel = document.createElement('label');
+            poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
+
+            layerControlDiv.appendChild(roadInput);
+            layerControlDiv.appendChild(roadLabel);
+            layerControlDiv.appendChild(poiInput);
+            layerControlDiv.appendChild(poiLabel);
+
+            olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
+
+            // --------------------------
+            // 5. OpenLayers Popup/Interaction Logic (Unchanged)
+            // --------------------------
+            const container = document.getElementById('popup');
+            const content = document.getElementById('popup-content');
+            const closer = document.getElementById('popup-closer');
+            
+            const overlay = new ol.Overlay({
+                element: container,
+                autoPan: true,
+                autoPanAnimation: { duration: 250 },
+            });
+            olMap.addOverlay(overlay);
+            
+            closer.onclick = function () {
+                overlay.setPosition(undefined);
+                closer.blur();
+                return false;
+            };
+
+            olMap.on('click', function (evt) {
+                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+                    const layerTitle = layer ? layer.get('title') : null;
+                    if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
+                         return feature;
+                    }
+                });
+                
+                if (feature) {
+                    const properties = feature.getProperties();
+                    let htmlContent = '';
+
+                    if (properties.Type && (properties.Type === 'Highway' || properties.Type === 'Road' || properties.Type === 'Street' || properties.Type === 'Ramp')) {
+                        htmlContent = `
+                            <div class="poi-popup-content">
+                                <b>${properties.Name || 'Unnamed Road'}</b><br/>
+                                Type: ${properties.Type || 'N/A'}
+                            </div>
+                        `;
+                    } else if (properties.Address || properties.Name) {
+                        htmlContent = `
+                            <div class="poi-popup-content">
+                                <b>${properties.Name || 'Unnamed Property'}</b><br/>
+                                Address: ${properties.Address || 'N/A'}
+                            </div>
+                        `;
+                    }
+
+                    if (htmlContent) {
+                        content.innerHTML = htmlContent;
+                        
+                        const geom = feature.getGeometry();
+                        let popupCoord;
+                        if (geom.getType() === 'LineString') {
+                            popupCoord = geom.getCoordinateAt(0.5);
+                        } else if (geom.getType() === 'Polygon') {
+                            popupCoord = ol.extent.getCenter(geom.getExtent());
+                        } else if (geom.getType() === 'Point') {
+                            popupCoord = geom.getCoordinates();
+                        }
+                        
+                        overlay.setPosition(popupCoord);
+                    } else {
+                        overlay.setPosition(undefined);
+                    }
+
+                } else {
+                    overlay.setPosition(undefined);
+                }
+            });
+
+        }; // End of window.onload
+    </script>
+</body>
+</html>
