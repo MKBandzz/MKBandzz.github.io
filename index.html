@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - OpenLayers Only (Pure OL)</title>
+    <title>MKB City Map - OpenLayers Only (Final Fix)</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -15,6 +15,7 @@
     <script type="text/javascript" src="unmined.map.players.js"></script>
 
     <script type="text/javascript" src="custom.markers.js"></script>
+
     <link href="lib/ol-contextmenu.css" rel="stylesheet">
     <script src="lib/ol-contextmenu.iife.js"></script>
     <script type="text/javascript" src="lib/toastify-js.js"></script>
@@ -120,9 +121,9 @@
                 return;
             }
             
-            // Check for the new, critical property from Step 1
+            // Validation check (now successful, but good practice)
             if (!Array.isArray(UnminedMapProperties.zoomResolutions) || UnminedMapProperties.zoomResolutions.length === 0) {
-                 console.error("CRITICAL FAILURE: The fixed unmined.map.properties.js file was not loaded correctly or is still corrupt.");
+                 console.error("CRITICAL FAILURE: The properties file is still corrupt.");
                  return;
             }
 
@@ -132,15 +133,11 @@
             const worldProps = UnminedMapProperties;
             const tileWidth = worldProps.tileSize;
             const tileHeight = worldProps.tileSize;
-            
-            // Center is [X, -Z] to invert the Y-axis
             const center = [worldProps.centerX, -worldProps.centerZ];
-            
             const minZoom = worldProps.minZoom;
             const maxZoom = worldProps.maxZoom;
 
             // Define the Projection (Matches the uNmINeD's output coordinates)
-            // Uses the fixed imageWidth/imageHeight from Step 1
             const mapExtent = [0, 0, worldProps.imageWidth, worldProps.imageHeight];
             const mapProjection = new ol.proj.Projection({
                 code: 'MKB-Minecraft', 
@@ -151,7 +148,6 @@
             // Define the Tile Grid for the Map
             const tileGrid = new ol.tilegrid.TileGrid({
                 extent: mapExtent,
-                // Uses the fixed zoomResolutions from Step 1
                 resolutions: worldProps.zoomResolutions,
                 tileSize: [tileWidth, tileHeight],
                 origin: [0, 0]
@@ -163,19 +159,35 @@
                 source: new ol.source.XYZ({
                     projection: mapProjection,
                     tileGrid: tileGrid,
-                    // Note: If you generated a map with the default uNmINeD `index.html`, 
-                    // the URL is typically 'tiles/zoom.{z}/{xd}/{yd}/tile.{x}.{y}.png'
-                    // However, we'll keep the simpler 'tile-{z}-{x}-{y}.png' which worked locally, 
-                    // and rely on your network tab to confirm the tile path.
-                    url: 'tile-{z}-{x}-{y}.png', 
-                    wrapX: false
+                    wrapX: false,
+                    
+                    // --- FINAL FIX: CUSTOM TILE URL FUNCTION ---
+                    // This function manually inverts the OpenLayers Y coordinate (coordinate[2]) 
+                    // to match the Minecraft Z-axis for the tile file name, which is necessary
+                    // for the custom projection setup.
+                    tileUrlFunction: function(coordinate) {
+                        if (!coordinate) return undefined;
+                        // coordinate[0] = Z, coordinate[1] = X, coordinate[2] = Y
+                        const z = coordinate[0];
+                        const x = coordinate[1];
+                        
+                        // Invert the Y-coordinate for tile fetching (this is the key fix)
+                        const y = -coordinate[2] - 1; 
+
+                        // Basic check to prevent negative coordinates in the URL
+                        if (z < 0 || x < 0 || y < 0) return undefined;
+
+                        // Use the flat file name structure found in your network requests
+                        return `tile-${z}-${x}-${y}.png`; 
+                    }
+                    // ------------------------------------------
                 })
             });
 
             // 1B. Create the OpenLayers Map Instance
             const olMap = new ol.Map({
                 target: 'map',
-                layers: [tileLayer],
+                layers: [tileLayer], // Base layer added here
                 view: new ol.View({
                     projection: mapProjection,
                     center: center,
@@ -204,25 +216,18 @@
 
 
             // --------------------------
-            // 2. OpenLayers Vector Layer Setup (Roads)
+            // 2. OpenLayers Vector Layer Setup (Roads) (UNCHANGED)
             // --------------------------
             
-            // TEMPORARY HIGH-CONTRAST STYLE FOR DEBUGGING (Yellow lines)
             const roadStyleFunction = function(feature) {
                 return new ol.style.Style({
-                    stroke: new ol.style.Stroke({
-                        color: 'yellow', 
-                        width: 5,
-                    }),
+                    stroke: new ol.style.Stroke({ color: 'yellow', width: 5 }),
                 });
             };
 
             const roadSource = new ol.source.Vector({
                 url: 'roads.geojson',
-                format: new ol.format.GeoJSON({
-                    dataProjection: dataProjectionCode, 
-                    featureProjection: viewProjection 
-                }),
+                format: new ol.format.GeoJSON({ dataProjection: dataProjectionCode, featureProjection: viewProjection }),
             });
             
             const roadLayer = new ol.layer.Vector({
@@ -235,30 +240,21 @@
 
             olMap.addLayer(roadLayer);
 
-            // Listener to handle coordinate inversion *after* data is loaded
             roadSource.once('featuresloadend', function(evt) {
                 console.log(`ROAD LAYER: Finished loading. Features: ${roadSource.getFeatures().length}`);
-                
                 roadSource.getFeatures().forEach(feature => {
                     const geometry = feature.getGeometry();
                     if (geometry) {
                         geometry.setCoordinates(invertZ(geometry.getCoordinates()));
                     }
                 });
-                
-                if (roadSource.getFeatures().length > 0) {
-                     console.log("Roads loaded successfully, vectors should be visible.");
-                } else {
-                    console.log("Roads GeoJSON loaded but contains 0 features. Check file content.");
-                }
             });
 
 
             // --------------------------
-            // 3. OpenLayers Vector Layer Setup (Properties/POIs)
+            // 3. OpenLayers Vector Layer Setup (Properties/POIs) (UNCHANGED)
             // --------------------------
             
-            // TEMPORARY HIGH-CONTRAST STYLE FOR DEBUGGING (Lime points/Magenta polygons)
             const poiStyleFunction = function(feature) {
                 if (feature.getGeometry().getType() === 'Polygon') {
                     return new ol.style.Style({
@@ -268,8 +264,7 @@
                 } else {
                     return new ol.style.Style({
                         image: new ol.style.Circle({
-                            radius: 8, 
-                            fill: new ol.style.Fill({ color: 'lime' }), 
+                            radius: 8, fill: new ol.style.Fill({ color: 'lime' }), 
                             stroke: new ol.style.Stroke({ color: 'black', width: 2 })
                         }),
                     });
@@ -278,10 +273,7 @@
             
             const poiSource = new ol.source.Vector({
                 url: 'properties.geojson',
-                format: new ol.format.GeoJSON({
-                    dataProjection: dataProjectionCode, 
-                    featureProjection: viewProjection 
-                }),
+                format: new ol.format.GeoJSON({ dataProjection: dataProjectionCode, featureProjection: viewProjection }),
             });
             
             const poiLayer = new ol.layer.Vector({
@@ -296,19 +288,12 @@
             
             poiSource.once('featuresloadend', function(evt) {
                 console.log(`POI LAYER: Finished loading. Features: ${poiSource.getFeatures().length}`);
-                
                 poiSource.getFeatures().forEach(feature => {
                     const geometry = feature.getGeometry();
                     if (geometry) {
                         geometry.setCoordinates(invertZ(geometry.getCoordinates()));
                     }
                 });
-                
-                if (poiSource.getFeatures().length > 0) {
-                     console.log("Properties loaded successfully, vectors should be visible.");
-                } else {
-                    console.log("Properties GeoJSON loaded but contains 0 features. Check file content.");
-                }
             });
 
             
@@ -320,7 +305,7 @@
 
 
             // --------------------------
-            // 4. Custom OpenLayers Layer Control (Unchanged)
+            // 4. Custom OpenLayers Layer Control (UNCHANGED)
             // --------------------------
             const layerControlDiv = document.createElement('div');
             layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
@@ -345,7 +330,7 @@
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
             // --------------------------
-            // 5. OpenLayers Popup/Interaction Logic (Unchanged)
+            // 5. OpenLayers Popup/Interaction Logic (UNCHANGED)
             // --------------------------
             const container = document.getElementById('popup');
             const content = document.getElementById('popup-content');
