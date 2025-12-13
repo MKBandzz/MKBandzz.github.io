@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - uNmINeD Vector Integration Final</title>
+    <title>MKB City Map - Final Vector Alignment Fix</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -117,8 +117,6 @@
 
     <script type="text/javascript">
         
-        // **CRITICAL FIX:** Wrapping all custom logic inside window.onload to prevent 
-        // "return not in function" errors and ensure all scripts are loaded.
         window.onload = function() {
 
             // 1. STANDARD uNmINeD INITIALIZATION LOGIC
@@ -143,27 +141,21 @@
             
             const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
             
-            // 2. CRITICAL FIXES FOR VECTOR INTEGRATION (Accessing Projections)
+            // 2. Accessing Map and Projections
 
-            // Access the map and projections from the Unmined instance.
-            // Using || unmined.openlayersMap provides a fallback for different uNmINeD versions.
             const olMap = unmined.olMap || unmined.openlayersMap;
             const dataProjection = unmined.dataProjection; 
             const viewProjection = unmined.viewProjection; 
 
-            if (!olMap) {
-                console.error("CRITICAL FAILURE: Could not find the OpenLayers map object (olMap). Vector layers cannot be added.");
-                return; 
-            }
-            if (!dataProjection || !viewProjection) {
-                console.error("CRITICAL FAILURE: Could not find dataProjection or viewProjection. Vector layers cannot be aligned.");
+            if (!olMap || !dataProjection || !viewProjection) {
+                console.error("CRITICAL FAILURE: Map or projection objects are missing. Cannot add vector layers.");
                 return; 
             }
 
-            console.log("uNmINeD Base Map and Projections Verified. Attempting to add vector layers...");
+            console.log("uNmINeD Base Map Verified. Applying client-side vector fix...");
 
 
-            // 3. VECTOR LAYER SETUP UTILITY
+            // 3. VECTOR LAYER SETUP UTILITY WITH COORDINATE NEGATION FIX
             
             function createVectorLayer(url, dataProjection, viewProjection, style) {
                 const vectorSource = new ol.source.Vector();
@@ -171,15 +163,42 @@
                 fetch(url)
                     .then(response => response.json())
                     .then(data => {
+                        
+                        // **CRITICAL FIX: INVERT Y/Z COORDINATE**
+                        function invertCoordinates(coords) {
+                            // Check if this is an array of coordinate arrays (e.g., LineString or Polygon)
+                            if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
+                                // Recursive call for Multi-part geometries (MultiLineString, MultiPolygon)
+                                return coords.map(part => invertCoordinates(part));
+                            }
+                            // Check if this is an array of coordinate pairs
+                            if (Array.isArray(coords[0]) && coords[0].length === 2) {
+                                // Simple LineString or Polygon ring. Negate the Y/Z component.
+                                return coords.map(coord => [coord[0], coord[1] * -1]);
+                            }
+                            // Base case: Single coordinate pair (for Point geometry)
+                            if (coords.length === 2 && typeof coords[1] === 'number') {
+                                return [coords[0], coords[1] * -1];
+                            }
+                            return coords; // Return unchanged if structure is unexpected
+                        }
+
+                        // Apply the inversion to all features
+                        data.features.forEach(feature => {
+                            if (feature.geometry && feature.geometry.coordinates) {
+                                feature.geometry.coordinates = invertCoordinates(feature.geometry.coordinates);
+                            }
+                        });
+                        // END CRITICAL FIX
+
                         const format = new ol.format.GeoJSON();
                         
-                        // Transform the features from DATA (Minecraft X, Z) to VIEW (OpenLayers)
                         const features = format.readFeatures(data, {
                             dataProjection: dataProjection,
                             featureProjection: viewProjection
                         });
                         vectorSource.addFeatures(features);
-                        console.log(`Vector Layer loaded and aligned successfully: ${url}`);
+                        console.log(`Vector Layer loaded, inverted, and aligned successfully: ${url}`);
                     })
                     .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
                 
@@ -225,7 +244,7 @@
             olMap.addLayer(poiLayer);
             
             
-            // 4. CUSTOM LAYER TOGGLE CONTROL
+            // 4. CUSTOM LAYER TOGGLE CONTROL (Unchanged)
             
             const layerControlDiv = document.createElement('div');
             layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
@@ -249,7 +268,7 @@
 
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
-            // 5. OPENLAYERS POPUP/INTERACTION LOGIC
+            // 5. OPENLAYERS POPUP/INTERACTION LOGIC (Unchanged)
             
             const container = document.getElementById('popup');
             const content = document.getElementById('popup-content');
@@ -271,7 +290,6 @@
             olMap.on('click', function (evt) {
                 const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
-                    // Only interact with the custom vector layers
                     if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
                          return feature;
                     }
