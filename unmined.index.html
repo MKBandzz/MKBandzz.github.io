@@ -204,36 +204,51 @@
                 });
             }
 
-            // 3A. Roads Layer Definition - UPDATED WITH GOOGLE MAPS COLOR-CODING
+            // 3A. Roads Layer Definition - UPDATED WITH BLACK OUTLINE AND NEW CLASSIFICATIONS
             
             function getRoadStyle(feature) {
                 const roadType = feature.get('Type');
                 let color = '#FFFFFF'; // Default fallback color: White
-                let width = 2;
+                let width = 2; // Surface width
 
                 switch(roadType) {
                     case 'Highway':
-                    case 'Ramp': // Yellow for Highways and Ramps
-                        color = '#F7D678'; // Yellow
+                    case 'Ramp':
+                    case 'Parkway': // NEW: Added Parkway
+                    case 'Freeway': // NEW: Added Freeway
+                        color = '#F7D678'; // Yellow for major controlled access roads
                         width = 5;
                         break;
-                    case 'Arterial': // White for Arterials and general Roads
+                    case 'Arterial': 
                     case 'Road':
-                        color = '#FFFFFF'; // White
+                        color = '#FFFFFF'; // White for main roads
                         width = 4;
                         break;
-                    case 'Street': // Gray for local Streets
-                        color = '#C0C0C0'; // Light Gray
+                    case 'Street': 
+                        color = '#C0C0C0'; // Light Gray for local streets
                         width = 3;
                         break;
                     default:
-                        // All other classifications fall here (White, default width)
+                        // All other classifications (White, default width)
                         color = '#FFFFFF';
                         width = 2;
                         break;
                 }
 
-                return new ol.style.Style({
+                const outlineWidth = width + 2; // Outline is 2 pixels wider than the road surface
+
+                // Style 1: Black Outline (the wider stroke)
+                const outlineStyle = new ol.style.Style({
+                    stroke: new ol.style.Stroke({ 
+                        color: '#000000', // Black
+                        width: outlineWidth,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }),
+                });
+
+                // Style 2: Colored Road Surface (the thinner stroke)
+                const surfaceStyle = new ol.style.Style({
                     stroke: new ol.style.Stroke({ 
                         color: color, 
                         width: width,
@@ -241,6 +256,9 @@
                         lineJoin: 'round'
                     }),
                 });
+
+                // OpenLayers draws styles in the order they appear in the array (first drawn underneath)
+                return [outlineStyle, surfaceStyle];
             };
 
             // Pass the new styling function to the layer creator
@@ -295,7 +313,7 @@
 
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
-            // 5. OPENLAYERS POPUP/INTERACTION LOGIC (Road popup displays Name and Type)
+            // 5. OPENLAYERS POPUP/INTERACTION LOGIC (Unchanged)
             
             const container = document.getElementById('popup');
             const content = document.getElementById('popup-content');
