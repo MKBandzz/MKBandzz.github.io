@@ -129,6 +129,7 @@
             font-weight: bold;
             margin-top: 5px;
             margin-bottom: 5px;
+            min-height: 3em; /* Ensure space for multi-line status */
         }
     </style>
 
@@ -145,13 +146,12 @@
     <script type="text/javascript">
         
         // GLOBAL STATE FOR PATHFINDING
-        let isSelectingStart = true;
+        let isSelectingStart = true; // Kept for future flexibility, not used for click mode
         let startNodeId = null; 
         let endNodeId = null;
         let pathMarkerLayer = null; 
         let pathLineLayer = null;  
-        let isContextSelectMode = false; // Toggled by the mode button
-        let roadLayerSource = null;      // Will hold the source for nearest node searches
+        let roadLayerSource = null; // Source for nearest node searches
 
 
         // Utility function to convert a node ID string "x,z" to a coordinate array [x, z]
@@ -161,7 +161,6 @@
         
         // Utility to draw the start and end markers
         function drawPathMarkers(olMap, dataProjection, viewProjection) {
-            // Clears and redraws markers on the dedicated layer
             pathMarkerLayer.getSource().clear();
             
             const startCoord = nodeIdToCoord(startNodeId);
@@ -179,7 +178,7 @@
                         stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 })
                     }),
                     text: new ol.style.Text({
-                        text: 'START (A)',
+                        text: 'A (Start)',
                         font: 'bold 12px sans-serif',
                         offsetY: 20,
                         fill: new ol.style.Fill({ color: 'green' }),
@@ -201,7 +200,7 @@
                         stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 })
                     }),
                     text: new ol.style.Text({
-                        text: 'END (B)',
+                        text: 'B (End)',
                         font: 'bold 12px sans-serif',
                         offsetY: 20,
                         fill: new ol.style.Fill({ color: 'red' }),
@@ -216,17 +215,9 @@
         function resetPath() {
             startNodeId = null;
             endNodeId = null;
-            isSelectingStart = true;
             if (pathMarkerLayer) pathMarkerLayer.getSource().clear();
             if (pathLineLayer) pathLineLayer.getSource().clear();
-            
-            // Update status based on the current mode
-            const statusElement = document.getElementById('path-status');
-            if (isContextSelectMode) {
-                 statusElement.textContent = 'Right-click map to set points (A/B).';
-            } else {
-                 statusElement.textContent = 'Click map to select START.';
-            }
+            document.getElementById('path-status').textContent = 'Right-click map to set START (A).';
         }
         
         // --- Function to execute pathfinding and draw the route ---
@@ -235,7 +226,6 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
-            // 1. Calculate the path (from pathfinding.js)
             const result = calculatePath(startNodeId, endNodeId);
             
             if (result.path && result.path.length > 0) {
@@ -250,7 +240,7 @@
                     geometry: new ol.geom.LineString(transformedCoords)
                 });
                 
-                // 4. Style the path
+                // 4. Style the path (Blue line)
                 pathFeature.setStyle(new ol.style.Style({
                     stroke: new ol.style.Stroke({
                         color: 'blue',
@@ -261,8 +251,13 @@
                 // 5. Add to the Path Line Layer
                 pathLineLayer.getSource().addFeature(pathFeature);
                 
-                // 6. Update status (cost is in time units: time = distance/speed)
-                statusElement.textContent = `Route found! Total travel cost (time): ${result.totalCost.toFixed(2)} units. Click Reset or change points.`;
+                // 6. Calculate total distance in blocks (using the function from pathfinding.js)
+                let totalDistance = 0;
+                for(let i = 0; i < result.path.length - 1; i++) {
+                    totalDistance += calculateDistance(result.path[i], result.path[i+1]);
+                }
+
+                statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${totalDistance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
                  statusElement.textContent = result.message || 'Error: Could not find a route.';
             }
@@ -272,24 +267,18 @@
         window.onload = function() {
 
             // 1. STANDARD uNmINeD INITIALIZATION LOGIC
-            
             document.title = UnminedMapProperties.worldName + " - " + document.title; 
-
             if (typeof UnminedCustomMarkers !== 'undefined' && UnminedCustomMarkers.isEnabled && UnminedCustomMarkers.markers) {
                 UnminedMapProperties.markers = UnminedMapProperties.markers.concat(UnminedCustomMarkers.markers); 
             }
-            
             if (typeof UnminedPlayers !== 'undefined' && UnminedPlayers.length > 0) {
                 if (typeof Unmined !== 'undefined' && Unmined.createPlayerMarkers) {
                     UnminedMapProperties.playerMarkers = Unmined.createPlayerMarkers(UnminedPlayers); 
                 }
             }
-
+            
             const mapElement = document.getElementById('map');
-            if (!mapElement) {
-                console.error("CRITICAL FAILURE: Map element with id='map' not found.");
-                return; 
-            }
+            if (!mapElement) { console.error("CRITICAL FAILURE: Map element with id='map' not found."); return; }
             
             const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
             
@@ -299,27 +288,14 @@
             const dataProjection = unmined.dataProjection; 
             const viewProjection = unmined.viewProjection; 
 
-            if (!olMap || !dataProjection || !viewProjection) {
-                console.error("CRITICAL FAILURE: Map or projection objects are missing. Cannot add vector layers.");
-                return; 
-            }
-
-            console.log("uNmINeD Base Map Verified. Applying client-side vector fix...");
+            if (!olMap || !dataProjection || !viewProjection) { console.error("CRITICAL FAILURE: Map or projection objects are missing."); return; }
             
             // Initialize path marker layer
-            pathMarkerLayer = new ol.layer.Vector({
-                source: new ol.source.Vector(),
-                title: 'Path Markers',
-                zIndex: 3000 // Highest Z-index for visibility
-            });
+            pathMarkerLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Path Markers', zIndex: 3000 });
             olMap.addLayer(pathMarkerLayer);
             
             // Initialize path line layer
-            pathLineLayer = new ol.layer.Vector({
-                source: new ol.source.Vector(),
-                title: 'Calculated Path',
-                zIndex: 2500 // Above roads, below markers
-            });
+            pathLineLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Calculated Path', zIndex: 2500 });
             olMap.addLayer(pathLineLayer);
 
 
@@ -360,12 +336,10 @@
                             featureProjection: viewProjection
                         });
                         vectorSource.addFeatures(features);
-                        console.log(`Vector Layer loaded, inverted, and aligned successfully: ${url}`);
                         
-                        // === NEW: Trigger Graph Construction for Roads only ===
                         if (url === 'roads.geojson') {
-                            roadLayerSource = vectorSource; // Store the source for spatial queries
-                            buildRoadGraph(features); // Build the graph from pathfinding.js
+                            roadLayerSource = vectorSource; 
+                            buildRoadGraph(features); 
                         }
                     })
                     .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
@@ -378,56 +352,30 @@
                 });
             }
 
-            // 3A. Roads Layer Definition
-            
+            // 3A. Roads Layer Definition (Style remains the same)
             function getRoadStyle(feature) {
                 const roadType = feature.get('Type');
-                let color = '#FFFFFF'; 
-                let width = 2; 
+                let color = '#FFFFFF'; let width = 2; 
 
                 switch(roadType) {
-                    case 'Highway':
-                    case 'Ramp':
-                    case 'Parkway':
-                    case 'Freeway':
-                        color = '#F7D678'; // Yellow for major controlled access roads
-                        width = 5;
-                        break;
-                    case 'Arterial': 
-                    case 'Road':
-                        color = '#FFFFFF'; // White for main roads
-                        width = 4;
-                        break;
+                    case 'Highway': case 'Ramp': case 'Parkway': case 'Freeway':
+                        color = '#F7D678'; width = 5; break;
+                    case 'Arterial': case 'Road':
+                        color = '#FFFFFF'; width = 4; break;
                     case 'Street': 
-                        color = '#C0C0C0'; // Light Gray for local streets
-                        width = 3;
-                        break;
+                        color = '#C0C0C0'; width = 3; break;
                     default:
-                        color = '#FFFFFF';
-                        width = 2;
-                        break;
+                        color = '#FFFFFF'; width = 2; break;
                 }
 
                 const outlineWidth = width + 2; 
-
                 const outlineStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ 
-                        color: '#000000', 
-                        width: outlineWidth,
-                        lineCap: 'round',
-                        lineJoin: 'round'
-                    }),
+                    stroke: new ol.style.Stroke({ color: '#000000', width: outlineWidth, lineCap: 'round', lineJoin: 'round' }),
                 });
 
                 const surfaceStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ 
-                        color: color, 
-                        width: width,
-                        lineCap: 'round',
-                        lineJoin: 'round'
-                    }),
+                    stroke: new ol.style.Stroke({ color: color, width: width, lineCap: 'round', lineJoin: 'round' }),
                 });
-
                 return [outlineStyle, surfaceStyle];
             };
 
@@ -436,7 +384,7 @@
             olMap.addLayer(roadLayer);
 
 
-            // 3B. Properties/POIs Layer Definition
+            // 3B. Properties/POIs Layer Definition (Style remains the same)
             const poiStyle = function(feature) {
                 if (feature.getGeometry().getType() === 'Polygon') {
                     return new ol.style.Style({
@@ -458,52 +406,33 @@
             olMap.addLayer(poiLayer);
             
             
-            // 4. CUSTOM LAYER TOGGLE CONTROL
-            
+            // 4. CUSTOM LAYER TOGGLE CONTROL (No change)
             const layerControlDiv = document.createElement('div');
             layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
 
             const roadInput = document.createElement('input');
             roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
             roadInput.onchange = function() { roadLayer.setVisible(this.checked); };
-            const roadLabel = document.createElement('label');
-            roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
+            const roadLabel = document.createElement('label'); roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
 
             const poiInput = document.createElement('input');
             poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
             poiInput.onchange = function() { poiLayer.setVisible(this.checked); };
-            const poiLabel = document.createElement('label');
-            poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
+            const poiLabel = document.createElement('label'); poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
 
-            layerControlDiv.appendChild(roadInput);
-            layerControlDiv.appendChild(roadLabel);
-            layerControlDiv.appendChild(poiInput);
-            layerControlDiv.appendChild(poiLabel);
+            layerControlDiv.appendChild(roadInput); layerControlDiv.appendChild(roadLabel);
+            layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiLabel);
 
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
 
-            // 4A. PATHFINDING CONTROL (UI for toggling and calculating)
+            // 4A. PATHFINDING CONTROL (UI for calculating)
             const pathControlDiv = document.createElement('div');
             pathControlDiv.className = 'ol-control ol-unselectable path-control';
             
-            // Toggle Button for Context Menu Selection
-            const toggleModeButton = document.createElement('button');
-            toggleModeButton.id = 'toggle-mode-btn';
-            toggleModeButton.textContent = 'Mode: Click Select'; 
-            toggleModeButton.onclick = function() {
-                isContextSelectMode = !isContextSelectMode;
-                this.textContent = isContextSelectMode ? 'Mode: Right-Click Select' : 'Mode: Click Select';
-                document.getElementById('path-status').textContent = isContextSelectMode 
-                    ? 'Right-click map to set points (A/B).' 
-                    : 'Click map to select START.';
-                resetPath();
-            };
-            pathControlDiv.appendChild(toggleModeButton);
-            
             const statusLabel = document.createElement('p');
             statusLabel.id = 'path-status';
-            statusLabel.textContent = 'Click map to select START.';
+            statusLabel.textContent = 'Right-click map to set START (A).';
             pathControlDiv.appendChild(statusLabel);
 
             const calculateButton = document.createElement('button');
@@ -512,7 +441,7 @@
                 if (startNodeId && endNodeId) {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else {
-                    alert('Please select both a Start and End point.');
+                    alert('Please set both a Start (A) and End (B) point by right-clicking the map.');
                 }
             };
             pathControlDiv.appendChild(calculateButton);
@@ -544,10 +473,8 @@
                 return false;
             };
 
-            // === Context Menu Selection Handler Function ===
+            // === CONTEXT MENU SELECTION HANDLER ===
             function handleContextSelection(viewCoord, type) {
-                if (!isContextSelectMode) return; 
-                
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
                 const preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1])];
 
@@ -557,16 +484,14 @@
                 if (nearestNode) {
                     if (type === 'start') {
                         startNodeId = nearestNode;
-                        document.getElementById('path-status').textContent = `START (A) set. Right-click to set END (B).`;
+                        endNodeId = null; // Reset end point when a new start is chosen
+                        document.getElementById('path-status').textContent = `START (A) set at ${nearestNode}. Right-click to set END (B).`;
+                        pathLineLayer.getSource().clear(); 
                     } else {
                         endNodeId = nearestNode;
-                        document.getElementById('path-status').textContent = `END (B) set. Click 'Calculate Route'.`;
+                        document.getElementById('path-status').textContent = `END (B) set at ${nearestNode}. Click 'Calculate Route'.`;
                     }
                     drawPathMarkers(olMap, dataProjection, viewProjection);
-                    // Optionally auto-calculate when both are set
-                    // if(startNodeId && endNodeId) {
-                    //     handleCalculatePath(olMap, dataProjection, viewProjection);
-                    // }
                 } else {
                     Toastify({
                         text: "No eligible road found within 10 blocks (excluding Freeways/Ramps).",
@@ -582,8 +507,7 @@
             const contextmenu_items = [
                 {
                     text: 'Set as Path Start (A)',
-                    classname: 'bold',
-                    // Note: Ensure the icon URLs are reachable or use local icons
+                    classname: 'bold path-start-item',
                     icon: 'https://cdn-icons-png.flaticon.com/16/242/242661.png', 
                     callback: function(obj) {
                         handleContextSelection(obj.coordinate, 'start');
@@ -591,97 +515,61 @@
                 },
                 {
                     text: 'Set as Path End (B)',
-                    classname: 'bold',
+                    classname: 'bold path-end-item',
                     icon: 'https://cdn-icons-png.flaticon.com/16/242/242662.png', 
                     callback: function(obj) {
                         handleContextSelection(obj.coordinate, 'end');
                     }
                 },
-                '-' // Separator
+                '-' // Separator 
             ];
-
+            
             const contextmenu = new ol.control.ContextMenu({
                 width: 180,
-                defaultItems: true,
+                defaultItems: true, 
                 items: contextmenu_items
             });
             olMap.addControl(contextmenu);
 
-
-            // --- Single-Click Handler ---
+            
+            // --- Single-Click Handler (Only handles popups) ---
             olMap.on('click', function (evt) {
+
+                let featureClicked = false;
+                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+                    const layerTitle = layer ? layer.get('title') : null;
+                    if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
+                        featureClicked = true;
+                        return feature;
+                    }
+                });
                 
-                // If context select mode is active, only allow POI popups, skip pathfinding.
-                if (isContextSelectMode) {
-                    // This block can be adjusted to handle POI popups when in context mode,
-                    // but for simplicity here, we ensure it doesn't trigger pathfinding logic.
-                } else {
-                    // 1. Check for feature clicks (POIs/Road info popups)
-                    let featureClicked = false;
-                    const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
-                        const layerTitle = layer ? layer.get('title') : null;
-                        if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
-                            featureClicked = true;
-                            return feature;
-                        }
-                    });
-                    
-                    if (featureClicked) {
-                        // Show popup for the feature (logic omitted for brevity, but it's where your original popup code would be)
-                        // ... (popup content generation based on feature properties) ...
-                        
-                        // Example: Simple Road Name display
-                        const properties = feature.getProperties();
-                        let htmlContent = `<div class="poi-popup-content"><b>${properties.Name || properties.Type || 'Feature'}</b></div>`;
-                        content.innerHTML = htmlContent;
-                        
-                        const geom = feature.getGeometry();
-                        let popupCoord;
-                        if (geom.getType() === 'Point') {
-                            popupCoord = geom.getCoordinates();
-                        } else {
-                            popupCoord = olMap.getCoordinateFromPixel(evt.pixel);
-                        }
-                        overlay.setPosition(popupCoord);
-
-                        return; 
+                if (featureClicked) {
+                    const properties = feature.getProperties();
+                    let htmlContent = `<div class="poi-popup-content"><b>${properties.Name || properties.Type || 'Feature'}</b><br>`;
+                    if(properties.Name && properties.Type) {
+                        htmlContent += `Type: ${properties.Type}`;
                     }
+                    htmlContent += `</div>`;
                     
-                    // 2. Handle Pathfinding selection (only if no feature was clicked and mode is 'Click Select')
+                    content.innerHTML = htmlContent;
                     
-                    const viewCoord = olMap.getEventCoordinate(evt.originalEvent);
-                    const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
-                    const preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1])];
-
-                    // Use the updated function with the stored roadLayerSource
-                    const nearestNode = findNearestNode(preciseBlockCoord, roadLayerSource, dataProjection, viewProjection);
-
-                    if (nearestNode) {
-                        if (isSelectingStart) {
-                            startNodeId = nearestNode;
-                            endNodeId = null; 
-                            isSelectingStart = false;
-                            pathLineLayer.getSource().clear(); 
-                            document.getElementById('path-status').textContent = 'START set. Click map to select END.';
-                        } else {
-                            endNodeId = nearestNode;
-                            isSelectingStart = true;
-                            document.getElementById('path-status').textContent = 'END set. Click "Calculate Route" or click again to set new START.';
-                        }
-                        
-                        drawPathMarkers(olMap, dataProjection, viewProjection);
-                        overlay.setPosition(undefined); // Close any open popup
+                    const geom = feature.getGeometry();
+                    let popupCoord;
+                    if (geom.getType() === 'Point') {
+                        popupCoord = geom.getCoordinates();
                     } else {
-                        Toastify({
-                            text: "Click was too far from any eligible road.",
-                            duration: 3000,
-                            gravity: "top",
-                            position: "center",
-                            style: { background: "red" }
-                        }).showToast();
+                        popupCoord = olMap.getCoordinateFromPixel(evt.pixel);
                     }
+                    overlay.setPosition(popupCoord);
+
+                    return; 
                 }
-            }); // End of olMap.on('click')
+                
+                // If no feature was clicked, close the popup
+                overlay.setPosition(undefined);
+
+            }); 
 
 
         }; // End of window.onload
