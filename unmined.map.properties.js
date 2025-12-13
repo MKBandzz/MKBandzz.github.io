@@ -5,7 +5,7 @@ var UnminedMapProperties = {
     defaultZoom: 0,
     imageFormat: "png",
     minRegionX: -10, // New value from your file
-    minRegionZ: -8,
+    minRegionZ: -8, // New value from your file
     maxRegionX: 18,
     maxRegionZ: 20,
     worldName: "MKB City",
@@ -26,7 +26,10 @@ var UnminedMapProperties = {
     
     // Calculated map dimensions based on new region sizes:
     imageWidth: 14848,
-    imageHeight: 14848
+    imageHeight: 14848,
+    
+    // The northernmost block Z (for coordinate offset)
+    minZBlock: -4096 
     
     // ----------------------------------------------------------------------
 }
