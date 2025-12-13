@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - Official uNmINeD OpenLayers Setup (Loading Fix)</title>
+    <title>MKB City Map - uNmINeD Vector Integration Final</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -10,20 +10,25 @@
     <link rel="stylesheet" type="text/css" href="lib/ol.css">
     <script src="lib/ol.js"></script>
 
+    <link href="lib/ol-contextmenu.css" rel="stylesheet">
+    <script src="lib/ol-contextmenu.iife.js"></script>
+
+    <script type="text/javascript" src="lib/toastify-js.js"></script>
+    <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
+
+
     <script type="text/javascript" src="unmined.map.properties.js"></script>
-    <script type="text/type="text/javascript" src="unmined.map.regions.js"></script>
+    <script type="text/javascript" src="unmined.map.regions.js"></script>
     <script type="text/javascript" src="unmined.map.players.js"></script>
+
+    <script type="text/javascript" src="custom.markers.js"></script>
 
     <script type="text/javascript" src="unmined.js"></script>
 
-    <link href="lib/ol-contextmenu.css" rel="stylesheet">
-    <script src="lib/ol-contextmenu.iife.js"></script>
-    <script type="text/javascript" src="lib/toastify-js.js"></script>
-    <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
-    
     <link rel="stylesheet" type="text/css" href="index.css">
-    
+        
     <style type="text/css">
+        /* Basic map sizing */
         html, body {
             width: 100%;
             height: 100%;
@@ -36,7 +41,7 @@
             width: 100%;
         }
         
-        /* Styles for Popups and Controls (Kept for consistency) */
+        /* Popup Styles */
         #popup {
             position: absolute;
             background-color: white;
@@ -82,6 +87,7 @@
         }
         .poi-popup-content { font-size: 13px; line-height: 1.2; }
         
+        /* Layer Control Styles */
         .ol-control.layer-toggle-control {
             top: .5em;
             right: .5em;
@@ -89,6 +95,7 @@
             padding: 5px 10px;
             border-radius: 4px;
             box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+            z-index: 2000; /* Ensure it is above the map */
         }
         .layer-toggle-control label {
             display: block;
@@ -96,216 +103,193 @@
             cursor: pointer;
             margin-top: 3px;
         }
-
     </style>
 
 </head>
 
 <body>
     <div id="map"></div>
+    
     <div id="popup">
         <a href="#" id="popup-closer" class="popup-closer"></a>
         <div id="popup-content"></div>
     </div>
-    
+
     <script type="text/javascript">
+
+        // 1. STANDARD uNmINeD INITIALIZATION LOGIC
         
-        window.onload = function() {
+        document.title = UnminedMapProperties.worldName + " - " + document.title; // Sets the window title
 
-            // ----------------------------------------------------
-            // 1. Initialize uNmINeD Map (Handles tiles and projection)
-            // ----------------------------------------------------
-            
-            // Re-checking the variable existence now that the files are loaded in order
-            if (typeof UnminedMapProperties === 'undefined' || typeof UnminedRegions === 'undefined') {
-                console.error("CRITICAL FAILURE: UnminedMapProperties or UnminedRegions is still missing after loading all scripts.");
-                return;
-            }
-            if (typeof Unmined === 'undefined') {
-                 console.error("CRITICAL FAILURE: The Unmined class (from unmined.js) is missing. Cannot initialize map.");
-                 return;
-            }
+        if (UnminedCustomMarkers && UnminedCustomMarkers.isEnabled && UnminedCustomMarkers.markers) {
+            UnminedMapProperties.markers = UnminedMapProperties.markers.concat(UnminedCustomMarkers.markers); // Add custom markers
+        }
+        
+        if (UnminedPlayers && UnminedPlayers.length > 0) {
+            // Add player markers using the function exposed by unmined.js
+            UnminedMapProperties.playerMarkers = Unmined.createPlayerMarkers(UnminedPlayers); 
+        }
 
-            // The Unmined class handles all tile loading, coordinate transforms, etc.
-            const unminedMap = new Unmined(
-                document.getElementById('map'), 
-                UnminedMapProperties, 
-                UnminedRegions
-            );
+        const mapElement = document.getElementById('map');
+        // Instantiate the main uNmINeD class, which initializes the OpenLayers map, projection, and tiles.
+        const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
+        
+        // Extract necessary objects for custom vector layers
+        const olMap = unmined.openlayersMap;
+        const dataProjection = unmined.dataProjection; // Minecraft Blocks (X, Z)
+        const viewProjection = unmined.viewProjection; // OpenLayers View Coordinates (Pixel/Degrees)
 
-            const olMap = unminedMap.olMap;
-            const dataProjection = unminedMap.dataProjection; // Minecraft Blocks [X, Z]
-            const viewProjection = unminedMap.viewProjection; // OpenLayers View Coordinates
-
-            console.log("SUCCESS: uNmINeD base map initialized. Adding vector layers...");
+        console.log("uNmINeD Base Map and Projections Initialized.");
 
 
-            // --------------------------
-            // 2. Vector Layer Setup Utility
-            // --------------------------
-            
-            // This function relies on the coordinate transforms set up by the Unmined class
-            function createVectorLayer(url, dataProjection, viewProjection, style) {
-                const vectorSource = new ol.source.Vector();
+        // 2. VECTOR LAYER SETUP UTILITY
+        
+        // This function handles loading GeoJSON and transforming its coordinates
+        function createVectorLayer(url, dataProjection, viewProjection, style) {
+            const vectorSource = new ol.source.Vector();
 
-                fetch(url)
-                    .then(response => response.json())
-                    .then(data => {
-                        const format = new ol.format.GeoJSON();
-                        // Read features:
-                        // dataProjection: The coordinates in the GeoJSON file are X, Z blocks (DATA)
-                        // featureProjection: We want the features to be transformed into the map's view coordinates (VIEW)
-                        const features = format.readFeatures(data, {
-                            dataProjection: dataProjection,
-                            featureProjection: viewProjection
-                        });
-                        vectorSource.addFeatures(features);
-                        console.log(`Vector Layer loaded and aligned successfully: ${url}`);
-                    })
-                    .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
-                
-                return new ol.layer.Vector({
-                    source: vectorSource,
-                    style: style,
-                    visible: true,
-                    zIndex: 1000 
-                });
-            }
-
-            // 2A. Roads Layer
-            const roadStyle = function(feature) {
-                return new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: 'yellow', width: 5 }),
-                });
-            };
-
-            const roadLayer = createVectorLayer('roads.geojson', dataProjection, viewProjection, roadStyle);
-            roadLayer.set('title', 'Roads Network'); // Set title for the toggle control
-            olMap.addLayer(roadLayer);
-
-
-            // 2B. Properties/POIs Layer
-            const poiStyle = function(feature) {
-                if (feature.getGeometry().getType() === 'Polygon') {
-                    return new ol.style.Style({
-                        stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
-                        fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' })
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    const format = new ol.format.GeoJSON();
+                    
+                    // Transform the features from DATA (Minecraft X, Z) to VIEW (OpenLayers)
+                    const features = format.readFeatures(data, {
+                        dataProjection: dataProjection,
+                        featureProjection: viewProjection
                     });
-                } else {
-                    return new ol.style.Style({
-                        image: new ol.style.Circle({
-                            radius: 8, fill: new ol.style.Fill({ color: 'lime' }), 
-                            stroke: new ol.style.Stroke({ color: 'black', width: 2 })
-                        }),
-                    });
-                }
-            };
+                    vectorSource.addFeatures(features);
+                    console.log(`Vector Layer loaded and aligned successfully: ${url}`);
+                })
+                .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
             
-            const poiLayer = createVectorLayer('properties.geojson', dataProjection, viewProjection, poiStyle);
-            poiLayer.set('title', 'Properties/POIs'); // Set title for the toggle control
-            olMap.addLayer(poiLayer);
-            
-            
-            // --------------------------
-            // 3. Custom OpenLayers Layer Control (UNCHANGED)
-            // --------------------------
-            const layerControlDiv = document.createElement('div');
-            layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
-
-            const roadInput = document.createElement('input');
-            roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
-            roadInput.onchange = function() { roadLayer.setVisible(this.checked); };
-            const roadLabel = document.createElement('label');
-            roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
-
-            const poiInput = document.createElement('input');
-            poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
-            poiInput.onchange = function() { poiLayer.setVisible(this.checked); };
-            const poiLabel = document.createElement('label');
-            poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
-
-            layerControlDiv.appendChild(roadInput);
-            layerControlDiv.appendChild(roadLabel);
-            layerControlDiv.appendChild(poiInput);
-            layerControlDiv.appendChild(poiLabel);
-
-            olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
-
-            // --------------------------
-            // 4. OpenLayers Popup/Interaction Logic (UNCHANGED)
-            // --------------------------
-            const container = document.getElementById('popup');
-            const content = document.getElementById('popup-content');
-            const closer = document.getElementById('popup-closer');
-            
-            const overlay = new ol.Overlay({
-                element: container,
-                autoPan: true,
-                autoPanAnimation: { duration: 250 },
+            return new ol.layer.Vector({
+                source: vectorSource,
+                style: style,
+                visible: true,
+                zIndex: 1000 
             });
-            olMap.addOverlay(overlay);
-            
-            closer.onclick = function () {
-                overlay.setPosition(undefined);
-                closer.blur();
-                return false;
-            };
+        }
 
-            olMap.on('click', function (evt) {
-                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
-                    const layerTitle = layer ? layer.get('title') : null;
-                    // Only check the layers we added here (not the base map or grid from unmined.js)
-                    if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
-                         return feature;
-                    }
+        // 2A. Roads Layer Definition
+        const roadStyle = function(feature) {
+            return new ol.style.Style({
+                stroke: new ol.style.Stroke({ color: 'yellow', width: 5 }),
+            });
+        };
+
+        const roadLayer = createVectorLayer('roads.geojson', dataProjection, viewProjection, roadStyle);
+        roadLayer.set('title', 'Roads Network');
+        olMap.addLayer(roadLayer);
+
+
+        // 2B. Properties/POIs Layer Definition
+        const poiStyle = function(feature) {
+            if (feature.getGeometry().getType() === 'Polygon') {
+                return new ol.style.Style({
+                    stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
+                    fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' })
                 });
-                
-                if (feature) {
-                    const properties = feature.getProperties();
-                    let htmlContent = '';
+            } else {
+                return new ol.style.Style({
+                    image: new ol.style.Circle({
+                        radius: 8, fill: new ol.style.Fill({ color: 'lime' }), 
+                        stroke: new ol.style.Stroke({ color: 'black', width: 2 })
+                    }),
+                });
+            }
+        };
+        
+        const poiLayer = createVectorLayer('properties.geojson', dataProjection, viewProjection, poiStyle);
+        poiLayer.set('title', 'Properties/POIs');
+        olMap.addLayer(poiLayer);
+        
+        
+        // 3. CUSTOM LAYER TOGGLE CONTROL
+        
+        const layerControlDiv = document.createElement('div');
+        layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
 
-                    if (properties.Type && (properties.Type === 'Highway' || properties.Type === 'Road' || properties.Type === 'Street' || properties.Type === 'Ramp')) {
-                        htmlContent = `
-                            <div class="poi-popup-content">
-                                <b>${properties.Name || 'Unnamed Road'}</b><br/>
-                                Type: ${properties.Type || 'N/A'}
-                            </div>
-                        `;
-                    } else if (properties.Address || properties.Name) {
-                        htmlContent = `
-                            <div class="poi-popup-content">
-                                <b>${properties.Name || 'Unnamed Property'}</b><br/>
-                                Address: ${properties.Address || 'N/A'}
-                            </div>
-                        `;
+        const roadInput = document.createElement('input');
+        roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
+        roadInput.onchange = function() { roadLayer.setVisible(this.checked); };
+        const roadLabel = document.createElement('label');
+        roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
+
+        const poiInput = document.createElement('input');
+        poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
+        poiInput.onchange = function() { poiLayer.setVisible(this.checked); };
+        const poiLabel = document.createElement('label');
+        poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
+
+        layerControlDiv.appendChild(roadInput);
+        layerControlDiv.appendChild(roadLabel);
+        layerControlDiv.appendChild(poiInput);
+        layerControlDiv.appendChild(poiLabel);
+
+        olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
+
+        // 4. OPENLAYERS POPUP/INTERACTION LOGIC
+        
+        const container = document.getElementById('popup');
+        const content = document.getElementById('popup-content');
+        const closer = document.getElementById('popup-closer');
+        
+        const overlay = new ol.Overlay({
+            element: container,
+            autoPan: true,
+            autoPanAnimation: { duration: 250 },
+        });
+        olMap.addOverlay(overlay);
+        
+        closer.onclick = function () {
+            overlay.setPosition(undefined);
+            closer.blur();
+            return false;
+        };
+
+        olMap.on('click', function (evt) {
+            const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+                const layerTitle = layer ? layer.get('title') : null;
+                // Only interact with the custom vector layers
+                if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
+                     return feature;
+                }
+            });
+            
+            if (feature) {
+                const properties = feature.getProperties();
+                let htmlContent = '';
+
+                if (properties.Type && (properties.Type === 'Highway' || properties.Type === 'Road' || properties.Type === 'Street' || properties.Type === 'Ramp')) {
+                    htmlContent = `<div class="poi-popup-content"><b>${properties.Name || 'Unnamed Road'}</b><br/>Type: ${properties.Type || 'N/A'}</div>`;
+                } else if (properties.Address || properties.Name) {
+                    htmlContent = `<div class="poi-popup-content"><b>${properties.Name || 'Unnamed Property'}</b><br/>Address: ${properties.Address || 'N/A'}</div>`;
+                }
+
+                if (htmlContent) {
+                    content.innerHTML = htmlContent;
+                    
+                    const geom = feature.getGeometry();
+                    let popupCoord;
+                    if (geom.getType() === 'LineString') {
+                        popupCoord = geom.getCoordinateAt(0.5);
+                    } else if (geom.getType() === 'Polygon') {
+                        popupCoord = ol.extent.getCenter(geom.getExtent());
+                    } else if (geom.getType() === 'Point') {
+                        popupCoord = geom.getCoordinates();
                     }
-
-                    if (htmlContent) {
-                        content.innerHTML = htmlContent;
-                        
-                        const geom = feature.getGeometry();
-                        let popupCoord;
-                        if (geom.getType() === 'LineString') {
-                            popupCoord = geom.getCoordinateAt(0.5);
-                        } else if (geom.getType() === 'Polygon') {
-                            popupCoord = ol.extent.getCenter(geom.getExtent());
-                        } else if (geom.getType() === 'Point') {
-                            popupCoord = geom.getCoordinates();
-                        }
-                        
-                        overlay.setPosition(popupCoord);
-                    } else {
-                        overlay.setPosition(undefined);
-                    }
-
+                    
+                    overlay.setPosition(popupCoord);
                 } else {
                     overlay.setPosition(undefined);
                 }
-            });
-            
-            // The unmined.js file handles context menu and other features automatically
 
-        }; // End of window.onload
+            } else {
+                overlay.setPosition(undefined);
+            }
+        });
+
     </script>
 </body>
 </html>
