@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - Final Vector Alignment Fix</title>
+    <title>MKB City Map 2.1</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -22,6 +22,8 @@
     <script type="text/javascript" src="unmined.map.players.js"></script>
 
     <script type="text/javascript" src="custom.markers.js"></script>
+    
+    <script type="text/javascript" src="pathfinding.js"></script>
 
     <script type="text/javascript" src="unmined.js"></script>
 
@@ -103,6 +105,25 @@
             cursor: pointer;
             margin-top: 3px;
         }
+        
+        /* Pathfinding UI */
+        .ol-control.path-control {
+            top: 6.5em; /* Below layer toggle */
+            right: .5em;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 5px 10px;
+            border-radius: 4px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+            z-index: 2000;
+            font-size: 14px;
+        }
+        .path-control button {
+            display: block;
+            width: 100%;
+            margin-top: 5px;
+            padding: 5px;
+            cursor: pointer;
+        }
     </style>
 
 </head>
@@ -117,6 +138,80 @@
 
     <script type="text/javascript">
         
+        // GLOBAL STATE FOR PATHFINDING
+        let isSelectingStart = true;
+        let startNodeId = null; 
+        let endNodeId = null;
+        let pathMarkerLayer = null; // Will hold the Start/End markers
+        let pathLineLayer = null;   // Will hold the final route line
+
+
+        // Utility function to convert a node ID string "x,z" to a coordinate array [x, z]
+        function nodeIdToCoord(nodeId) {
+            return nodeId ? nodeId.split(',').map(Number) : null;
+        }
+        
+        // Utility to draw the start and end markers
+        function drawPathMarkers(olMap, dataProjection, viewProjection) {
+            pathMarkerLayer.getSource().clear();
+            
+            const startCoord = nodeIdToCoord(startNodeId);
+            const endCoord = nodeIdToCoord(endNodeId);
+            
+            if (startCoord) {
+                const startFeature = new ol.Feature({
+                    geometry: new ol.geom.Point(ol.proj.transform(startCoord, dataProjection, viewProjection))
+                });
+                startFeature.setStyle(new ol.style.Style({
+                    image: new ol.style.Circle({
+                        radius: 10,
+                        fill: new ol.style.Fill({ color: 'rgba(76, 175, 80, 0.8)' }), // Green
+                        stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 })
+                    }),
+                    text: new ol.style.Text({
+                        text: 'START',
+                        font: 'bold 12px sans-serif',
+                        offsetY: 20,
+                        fill: new ol.style.Fill({ color: 'green' }),
+                        stroke: new ol.style.Stroke({ color: 'white', width: 2 })
+                    })
+                }));
+                pathMarkerLayer.getSource().addFeature(startFeature);
+            }
+            
+            if (endCoord) {
+                const endFeature = new ol.Feature({
+                    geometry: new ol.geom.Point(ol.proj.transform(endCoord, dataProjection, viewProjection))
+                });
+                endFeature.setStyle(new ol.style.Style({
+                    image: new ol.style.Circle({
+                        radius: 10,
+                        fill: new ol.style.Fill({ color: 'rgba(244, 67, 54, 0.8)' }), // Red
+                        stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 })
+                    }),
+                    text: new ol.style.Text({
+                        text: 'END',
+                        font: 'bold 12px sans-serif',
+                        offsetY: 20,
+                        fill: new ol.style.Fill({ color: 'red' }),
+                        stroke: new ol.style.Stroke({ color: 'white', width: 2 })
+                    })
+                }));
+                pathMarkerLayer.getSource().addFeature(endFeature);
+            }
+        }
+
+        // Utility to reset the pathfinding state completely
+        function resetPath() {
+            startNodeId = null;
+            endNodeId = null;
+            isSelectingStart = true;
+            if (pathMarkerLayer) pathMarkerLayer.getSource().clear();
+            if (pathLineLayer) pathLineLayer.getSource().clear();
+            document.getElementById('path-status').textContent = 'Click map to select START.';
+        }
+
+
         window.onload = function() {
 
             // 1. STANDARD uNmINeD INITIALIZATION LOGIC
@@ -153,6 +248,22 @@
             }
 
             console.log("uNmINeD Base Map Verified. Applying client-side vector fix...");
+            
+            // Initialize path marker layer
+            pathMarkerLayer = new ol.layer.Vector({
+                source: new ol.source.Vector(),
+                title: 'Path Markers',
+                zIndex: 3000 // Highest Z-index for visibility
+            });
+            olMap.addLayer(pathMarkerLayer);
+            
+            // Initialize path line layer
+            pathLineLayer = new ol.layer.Vector({
+                source: new ol.source.Vector(),
+                title: 'Calculated Path',
+                zIndex: 2500 // Above roads, below markers
+            });
+            olMap.addLayer(pathLineLayer);
 
 
             // 3. VECTOR LAYER SETUP UTILITY WITH COORDINATE NEGATION FIX
@@ -193,6 +304,12 @@
                         });
                         vectorSource.addFeatures(features);
                         console.log(`Vector Layer loaded, inverted, and aligned successfully: ${url}`);
+                        
+                        // === NEW: Trigger Graph Construction for Roads only ===
+                        if (url === 'roads.geojson') {
+                            // The global function from pathfinding.js is called here
+                            buildRoadGraph(features); 
+                        }
                     })
                     .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
                 
@@ -204,18 +321,18 @@
                 });
             }
 
-            // 3A. Roads Layer Definition - UPDATED WITH BLACK OUTLINE AND NEW CLASSIFICATIONS
+            // 3A. Roads Layer Definition (Style logic remains the same)
             
             function getRoadStyle(feature) {
                 const roadType = feature.get('Type');
-                let color = '#FFFFFF'; // Default fallback color: White
-                let width = 2; // Surface width
+                let color = '#FFFFFF'; 
+                let width = 2; 
 
                 switch(roadType) {
                     case 'Highway':
                     case 'Ramp':
-                    case 'Parkway': // NEW: Added Parkway
-                    case 'Freeway': // NEW: Added Freeway
+                    case 'Parkway':
+                    case 'Freeway':
                         color = '#F7D678'; // Yellow for major controlled access roads
                         width = 5;
                         break;
@@ -229,25 +346,22 @@
                         width = 3;
                         break;
                     default:
-                        // All other classifications (White, default width)
                         color = '#FFFFFF';
                         width = 2;
                         break;
                 }
 
-                const outlineWidth = width + 2; // Outline is 2 pixels wider than the road surface
+                const outlineWidth = width + 2; 
 
-                // Style 1: Black Outline (the wider stroke)
                 const outlineStyle = new ol.style.Style({
                     stroke: new ol.style.Stroke({ 
-                        color: '#000000', // Black
+                        color: '#000000', 
                         width: outlineWidth,
                         lineCap: 'round',
                         lineJoin: 'round'
                     }),
                 });
 
-                // Style 2: Colored Road Surface (the thinner stroke)
                 const surfaceStyle = new ol.style.Style({
                     stroke: new ol.style.Stroke({ 
                         color: color, 
@@ -257,11 +371,9 @@
                     }),
                 });
 
-                // OpenLayers draws styles in the order they appear in the array (first drawn underneath)
                 return [outlineStyle, surfaceStyle];
             };
 
-            // Pass the new styling function to the layer creator
             const roadLayer = createVectorLayer('roads.geojson', dataProjection, viewProjection, getRoadStyle);
             roadLayer.set('title', 'Roads Network');
             olMap.addLayer(roadLayer);
@@ -313,7 +425,36 @@
 
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
-            // 5. OPENLAYERS POPUP/INTERACTION LOGIC (Unchanged)
+
+            // 4A. PATHFINDING CONTROL
+            const pathControlDiv = document.createElement('div');
+            pathControlDiv.className = 'ol-control ol-unselectable path-control';
+            
+            const statusLabel = document.createElement('p');
+            statusLabel.id = 'path-status';
+            statusLabel.textContent = 'Click map to select START.';
+            pathControlDiv.appendChild(statusLabel);
+
+            const calculateButton = document.createElement('button');
+            calculateButton.textContent = 'Calculate Route';
+            calculateButton.onclick = function() {
+                if (startNodeId && endNodeId) {
+                    handleCalculatePath(olMap, dataProjection, viewProjection); 
+                } else {
+                    alert('Please select both a Start and End point.');
+                }
+            };
+            pathControlDiv.appendChild(calculateButton);
+            
+            const resetButton = document.createElement('button');
+            resetButton.textContent = 'Reset';
+            resetButton.onclick = resetPath;
+            pathControlDiv.appendChild(resetButton);
+            
+            olMap.addControl(new ol.control.Control({ element: pathControlDiv }));
+
+
+            // 5. OPENLAYERS POPUP/INTERACTION LOGIC - UPDATED TO INCLUDE PATH SELECTION
             
             const container = document.getElementById('popup');
             const content = document.getElementById('popup-content');
@@ -333,27 +474,27 @@
             };
 
             olMap.on('click', function (evt) {
-                let clickedLayer = null;
+                // First, check for feature clicks (POIs/Road info popups)
+                let featureClicked = false;
                 const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
                     if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
-                        clickedLayer = layerTitle;
+                        featureClicked = true;
                         return feature;
                     }
                 });
                 
-                if (feature) {
+                if (featureClicked) {
+                    // Show popup for the feature
                     const properties = feature.getProperties();
                     let htmlContent = '';
                     
-                    if (clickedLayer === 'Roads Network') {
-                        // 1. ROADS LOGIC: Display Name and Type
+                    if (feature.get('title') === 'Roads Network') {
                         const roadName = properties.Name || 'Unnamed Road';
                         const roadType = properties.Type || 'Road Segment';
                         htmlContent = `<div class="poi-popup-content"><b>${roadName}</b><br/>Type: ${roadType}</div>`;
-
-                    } else if (clickedLayer === 'Properties/POIs') {
-                        // 2. PROPERTIES/POIS LOGIC: Display Name and other attributes
+                    } else if (feature.get('title') === 'Properties/POIs') {
+                        // POI logic
                         htmlContent += `<div class="poi-popup-content">`;
                         
                         if (properties.Name) {
@@ -389,14 +530,92 @@
                         }
                         
                         overlay.setPosition(popupCoord);
-                    } else {
-                        overlay.setPosition(undefined);
+                        return; // Exit click handler after handling feature popup
                     }
-
-                } else {
-                    overlay.setPosition(undefined);
                 }
-            });
+                
+                // If no feature was clicked, handle pathfinding selection
+                
+                // 1. Get the clicked coordinate in the map's data projection (blocks)
+                const viewCoord = olMap.getEventCoordinate(evt.originalEvent);
+                const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
+                
+                // Round to integer block coordinates for consistency with GeoJSON
+                const preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1])];
+
+                // 2. Find the nearest node in the road network graph
+                const nearestNode = findNearestNode(preciseBlockCoord);
+
+                if (nearestNode) {
+                    if (isSelectingStart) {
+                        // SET START POINT
+                        startNodeId = nearestNode;
+                        endNodeId = null; // Clear end point when starting a new path
+                        isSelectingStart = false;
+                        pathLineLayer.getSource().clear(); // Clear previous path line
+                        document.getElementById('path-status').textContent = 'START set. Click map to select END.';
+                    } else {
+                        // SET END POINT
+                        endNodeId = nearestNode;
+                        isSelectingStart = true;
+                        document.getElementById('path-status').textContent = 'END set. Click "Calculate Route" or click again to set new START.';
+                    }
+                    
+                    // 3. Update map markers
+                    drawPathMarkers(olMap, dataProjection, viewProjection);
+                    overlay.setPosition(undefined); // Close any open popup
+                } else {
+                    // Notify user if click was too far from a road
+                    Toastify({
+                        text: "Click was too far from any road.",
+                        duration: 3000,
+                        gravity: "top",
+                        position: "center",
+                        style: { background: "red" }
+                    }).showToast();
+                }
+            }); // End of olMap.on('click')
+            
+        
+            // --- Function to execute pathfinding and draw the route (Connected to the "Calculate Route" button) ---
+            function handleCalculatePath(olMap, dataProjection, viewProjection) {
+                pathLineLayer.getSource().clear();
+                const statusElement = document.getElementById('path-status');
+                statusElement.textContent = 'Calculating...';
+                
+                // 1. Calculate the path (from pathfinding.js)
+                const result = calculatePath(startNodeId, endNodeId);
+                
+                if (result.path && result.path.length > 0) {
+                    
+                    // 2. Transform coordinates for OpenLayers display
+                    const transformedCoords = result.path.map(coord => 
+                        ol.proj.transform(coord, dataProjection, viewProjection)
+                    );
+                    
+                    // 3. Create the LineString feature
+                    const pathFeature = new ol.Feature({
+                        geometry: new ol.geom.LineString(transformedCoords)
+                    });
+                    
+                    // 4. Style the path
+                    pathFeature.setStyle(new ol.style.Style({
+                        stroke: new ol.style.Stroke({
+                            color: 'blue',
+                            width: 8
+                        })
+                    }));
+                    
+                    // 5. Add to the Path Line Layer
+                    pathLineLayer.getSource().addFeature(pathFeature);
+                    
+                    // 6. Update status (cost is in time units: time = distance/speed)
+                    statusElement.textContent = `Route found! Total travel cost (time): ${result.totalCost.toFixed(2)} units. Click Reset or click map to set new START.`;
+                } else {
+                     statusElement.textContent = result.message || 'Error: Could not find a route.';
+                }
+            }
+
 
         }; // End of window.onload
     </script>
