@@ -16,15 +16,17 @@ var UnminedMapProperties = {
     centerX: 0,
     centerZ: 0,
     
-    // --- CRITICAL FIXES ADDED BELOW ---
-    // 1. Zoom resolutions calculated for minZoom 0 to maxZoom 3:
+    // --- CRITICAL PROPERTIES ADDED FOR OPENLAYERS & COORDINATE ALIGNMENT ---
+    
+    // Calculated zoom resolutions for minZoom 0 to maxZoom 3:
     zoomResolutions: [1.0, 0.5, 0.25, 0.125],
     
-    // 2. Standard uNmINeD tile size:
+    // Standard uNmINeD tile size:
     tileSize: 256,
     
-    // 3. Calculated map dimensions based on region size (28x29 regions * 512 blocks/region):
-    imageWidth: 14336,
-    imageHeight: 14848
-    // ----------------------------------
+    // Calculated map dimensions based on region size (28x29 regions * 512 blocks/region):
+    imageWidth: 14336, // (18 - (-9) + 1) * 512 = 28 * 512 = 14336
+    imageHeight: 14848 // (20 - (-8) + 1) * 512 = 29 * 512 = 14848
+    
+    // ----------------------------------------------------------------------
 }

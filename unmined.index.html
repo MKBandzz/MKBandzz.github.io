@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - OpenLayers Only (Final Vector Reflection Fix)</title>
+    <title>MKB City Map - OpenLayers Only (Final Coordinate Fix)</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -135,7 +135,10 @@
             const center = [worldProps.centerX, -worldProps.centerZ];
             const minZoom = worldProps.minZoom;
             const maxZoom = worldProps.maxZoom;
-            const mapHeight = worldProps.imageHeight; // *** CRITICAL FOR REFLECTION FIX ***
+            
+            // Critical constants for coordinate transformation
+            const mapHeight = worldProps.imageHeight; 
+            const minZBlock = worldProps.minRegionZ * 512; // Calculates -4096 (Northernmost block Z)
 
             const mapExtent = [0, 0, worldProps.imageWidth, mapHeight];
             const mapProjection = new ol.proj.Projection({
@@ -151,7 +154,7 @@
                 origin: [0, 0]
             });
             
-            // 1A. Base Tile Layer (Tile logic is now confirmed as correct)
+            // 1A. Base Tile Layer (Confirmed as correct)
             const tileLayer = new ol.layer.Tile({
                 title: 'Minecraft Base Map',
                 source: new ol.source.XYZ({
@@ -188,22 +191,29 @@
                 })
             });
             
-            console.log("SUCCESS: Tiles loading. Applying final vector reflection fix...");
+            console.log("SUCCESS: Tiles loading. Applying final vector coordinate fix...");
             
-            // *** FIX: COORDINATE REFLECTION FUNCTION ***
-            // This function reflects the Z-coordinate (which is OpenLayers Y) across the map's horizontal center line.
+            // *** FINAL FIX: COORDINATE REFLECTION FUNCTION WITH BLOCK OFFSET ***
             function reflectZ(coordinates) {
                 if (typeof coordinates[0] === 'number') {
-                    // Base case: [X, Z] -> [X, mapHeight - Z]
-                    // This performs the necessary reflection to correct the orientation.
-                    return [coordinates[0], mapHeight - coordinates[1]];
+                    const x_mc = coordinates[0];
+                    const z_mc = coordinates[1];
+                    
+                    // 1. Shift Z to be relative to the map's 0 (top-most block)
+                    // (z_mc - minZBlock) converts the world coordinate to a pixel-like offset [0, H]
+                    const z_pixel_offset = z_mc - minZBlock; 
+                    
+                    // 2. Reflect the pixel offset across the height H
+                    // This corrects the orientation for the inverted map view.
+                    const y_final = mapHeight - z_pixel_offset; 
+                    
+                    return [x_mc, y_final];
                 } else {
-                    // Recursive case: array of points/arrays
                     return coordinates.map(reflectZ);
                 }
             }
 
-            // Function to load GeoJSON, reflect coordinates, and create a source
+            // Function to load GeoJSON, reflect coordinates, and create a source (UNCHANGED)
             function createVectorSource(url) {
                 const vectorSource = new ol.source.Vector();
 
@@ -220,7 +230,7 @@
                         features.forEach(feature => {
                             const geometry = feature.getGeometry();
                             if (geometry) {
-                                // Apply the reflection correction to the coordinates
+                                // Apply the definitive reflection correction
                                 geometry.setCoordinates(reflectZ(geometry.getCoordinates()));
                             }
                         });
