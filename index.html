@@ -166,7 +166,6 @@
                         
                         // **CRITICAL FIX: INVERT Y/Z COORDINATE**
                         function invertCoordinates(coords) {
-                            // Helper function to handle coordinate structure recursively
                             if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
                                 return coords.map(part => invertCoordinates(part));
                             }
@@ -179,7 +178,6 @@
                             return coords;
                         }
 
-                        // Apply the inversion to all features
                         data.features.forEach(feature => {
                             if (feature.geometry && feature.geometry.coordinates) {
                                 feature.geometry.coordinates = invertCoordinates(feature.geometry.coordinates);
@@ -206,19 +204,52 @@
                 });
             }
 
-            // 3A. Roads Layer Definition
-            const roadStyle = function(feature) {
+            // 3A. Roads Layer Definition - UPDATED WITH GOOGLE MAPS COLOR-CODING
+            
+            function getRoadStyle(feature) {
+                const roadType = feature.get('Type');
+                let color = '#FFFFFF'; // Default fallback color: White
+                let width = 2;
+
+                switch(roadType) {
+                    case 'Highway':
+                    case 'Ramp': // Yellow for Highways and Ramps
+                        color = '#F7D678'; // Yellow
+                        width = 5;
+                        break;
+                    case 'Arterial': // White for Arterials and general Roads
+                    case 'Road':
+                        color = '#FFFFFF'; // White
+                        width = 4;
+                        break;
+                    case 'Street': // Gray for local Streets
+                        color = '#C0C0C0'; // Light Gray
+                        width = 3;
+                        break;
+                    default:
+                        // All other classifications fall here (White, default width)
+                        color = '#FFFFFF';
+                        width = 2;
+                        break;
+                }
+
                 return new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: 'yellow', width: 5 }),
+                    stroke: new ol.style.Stroke({ 
+                        color: color, 
+                        width: width,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }),
                 });
             };
 
-            const roadLayer = createVectorLayer('roads.geojson', dataProjection, viewProjection, roadStyle);
+            // Pass the new styling function to the layer creator
+            const roadLayer = createVectorLayer('roads.geojson', dataProjection, viewProjection, getRoadStyle);
             roadLayer.set('title', 'Roads Network');
             olMap.addLayer(roadLayer);
 
 
-            // 3B. Properties/POIs Layer Definition
+            // 3B. Properties/POIs Layer Definition (Unchanged)
             const poiStyle = function(feature) {
                 if (feature.getGeometry().getType() === 'Polygon') {
                     return new ol.style.Style({
@@ -264,7 +295,7 @@
 
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
-            // 5. OPENLAYERS POPUP/INTERACTION LOGIC - UPDATED FOR ROAD/PROPERTY ATTRIBUTES
+            // 5. OPENLAYERS POPUP/INTERACTION LOGIC (Road popup displays Name and Type)
             
             const container = document.getElementById('popup');
             const content = document.getElementById('popup-content');
@@ -298,33 +329,25 @@
                     let htmlContent = '';
                     
                     if (clickedLayer === 'Roads Network') {
-                        // 1. ROADS LOGIC: Only display Type
+                        // 1. ROADS LOGIC: Display Name and Type
+                        const roadName = properties.Name || 'Unnamed Road';
                         const roadType = properties.Type || 'Road Segment';
-                        htmlContent = `<div class="poi-popup-content"><b>${roadType}</b></div>`;
+                        htmlContent = `<div class="poi-popup-content"><b>${roadName}</b><br/>Type: ${roadType}</div>`;
 
                     } else if (clickedLayer === 'Properties/POIs') {
-                        // 2. PROPERTIES/POIS LOGIC: Display all relevant attributes
+                        // 2. PROPERTIES/POIS LOGIC: Display Name and other attributes
                         htmlContent += `<div class="poi-popup-content">`;
                         
-                        // Always try to display Name first
                         if (properties.Name) {
                             htmlContent += `<b>${properties.Name}</b><br/>`;
                         } else if (properties.Type) {
                             htmlContent += `<b>${properties.Type}</b><br/>`;
                         }
                         
-                        // List other properties explicitly
                         if (properties.Address) {
                             htmlContent += `Address: ${properties.Address}<br/>`;
                         }
-                        // Add more properties here if they exist in your GeoJSON:
-                        /*
-                        if (properties.Owner) {
-                            htmlContent += `Owner: ${properties.Owner}<br/>`;
-                        }
-                        */
                         
-                        // Fallback/Close the div
                         if (htmlContent === `<div class="poi-popup-content">`) {
                              htmlContent += `No details available.</div>`;
                         } else {
