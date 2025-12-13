@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>MKB City Map - OpenLayers Only (Final Coordinate Fix)</title>
+    <title>MKB City Map - Official uNmINeD OpenLayers Setup</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -13,8 +13,8 @@
     <script type="text/javascript" src="unmined.map.properties.js"></script>
     <script type="text-type="text/javascript" src="unmined.map.regions.js"></script>
     <script type="text/javascript" src="unmined.map.players.js"></script>
-
-    <script type="text/javascript" src="custom.markers.js"></script>
+    
+    <script type="text/javascript" src="unmined.js"></script>
 
     <link href="lib/ol-contextmenu.css" rel="stylesheet">
     <script src="lib/ol-contextmenu.iife.js"></script>
@@ -36,7 +36,7 @@
             width: 100%;
         }
         
-        /* Styles for Popups and Controls (Unchanged) */
+        /* Styles for Popups and Controls (Kept from previous steps) */
         #popup {
             position: absolute;
             background-color: white;
@@ -113,165 +113,78 @@
         window.onload = function() {
 
             // ----------------------------------------------------
-            // 1. OpenLayers Map Creation 
+            // 1. Initialize uNmINeD Map (Handles tiles and projection)
             // ----------------------------------------------------
             
-            if (typeof UnminedMapProperties === 'undefined' || !UnminedMapProperties.worldName) {
-                console.error("CRITICAL FAILURE: UnminedMapProperties object is missing.");
+            if (typeof UnminedMapProperties === 'undefined' || typeof UnminedRegions === 'undefined') {
+                console.error("CRITICAL FAILURE: uNmINeD properties or regions are missing.");
                 return;
             }
-            
-            const worldProps = UnminedMapProperties;
-            
-            if (!Array.isArray(worldProps.zoomResolutions) || worldProps.zoomResolutions.length === 0) {
-                 console.error("CRITICAL FAILURE: The properties file is corrupt. Please ensure unmined.map.properties.js is fixed (Step 1).");
+            if (typeof Unmined === 'undefined') {
+                 console.error("CRITICAL FAILURE: The Unmined class (from unmined.js) is missing. Cannot initialize map.");
                  return;
             }
 
-            document.title = worldProps.worldName + " - " + document.title; 
+            // The Unmined class handles all tile loading, coordinate transforms, etc.
+            const unminedMap = new Unmined(
+                document.getElementById('map'), 
+                UnminedMapProperties, 
+                UnminedRegions
+            );
 
-            const tileWidth = worldProps.tileSize;
-            const tileHeight = worldProps.tileSize;
-            const center = [worldProps.centerX, -worldProps.centerZ];
-            const minZoom = worldProps.minZoom;
-            const maxZoom = worldProps.maxZoom;
+            const olMap = unminedMap.olMap;
+            const dataProjection = unminedMap.dataProjection; // Minecraft Blocks [X, Z]
+            const viewProjection = unminedMap.viewProjection; // OpenLayers View Coordinates
+
+            console.log("SUCCESS: uNmINeD base map initialized. Adding vector layers...");
+
+
+            // --------------------------
+            // 2. Vector Layer Setup Utility
+            // --------------------------
             
-            // Critical constants for coordinate transformation
-            const mapHeight = worldProps.imageHeight; 
-            const minZBlock = worldProps.minZBlock; 
-
-            const mapExtent = [0, 0, worldProps.imageWidth, mapHeight];
-            const mapProjection = new ol.proj.Projection({
-                code: 'MKB-Minecraft', 
-                units: 'pixels',
-                extent: mapExtent,
-            });
-
-            const tileGrid = new ol.tilegrid.TileGrid({
-                extent: mapExtent,
-                resolutions: worldProps.zoomResolutions,
-                tileSize: [tileWidth, tileHeight],
-                origin: [0, 0]
-            });
-            
-            // 1A. Base Tile Layer (Confirmed as correct)
-            const tileLayer = new ol.layer.Tile({
-                title: 'Minecraft Base Map',
-                source: new ol.source.XYZ({
-                    projection: mapProjection,
-                    tileGrid: tileGrid,
-                    wrapX: false,
-                    
-                    tileUrlFunction: function(coordinate) {
-                        if (!coordinate) return undefined;
-                        const z = coordinate[0];
-                        const x = coordinate[1];
-                        const y = -coordinate[2] - 1; // Invert Y index for Z-axis
-
-                        if (z < 0 || x < 0 || y < 0) return undefined;
-
-                        const xFolder = Math.floor(x / 1000);
-                        const yFolder = Math.floor(y / 1000);
-                        
-                        return `tiles/zoom.${z}/${xFolder}/${yFolder}/tile.${x}.${y}.png`;
-                    }
-                })
-            });
-
-            // 1B. Create the OpenLayers Map Instance
-            const olMap = new ol.Map({
-                target: 'map',
-                layers: [tileLayer],
-                view: new ol.View({
-                    projection: mapProjection,
-                    center: center,
-                    zoom: worldProps.defaultZoom,
-                    minZoom: minZoom,
-                    maxZoom: maxZoom
-                })
-            });
-            
-            console.log("SUCCESS: Map initialized with correct dimensions. Applying vector coordinate fix...");
-            
-            // *** FINAL FIX: COORDINATE REFLECTION FUNCTION WITH BLOCK OFFSET ***
-            function reflectZ(coordinates) {
-                if (typeof coordinates[0] === 'number') {
-                    const x_mc = coordinates[0];
-                    const z_mc = coordinates[1];
-                    
-                    // 1. Shift Z to be relative to the map's 0 (top-most block: minZBlock)
-                    // (z_mc - minZBlock) converts the world coordinate to a pixel-like offset [0, H]
-                    const z_pixel_offset = z_mc - minZBlock; 
-                    
-                    // 2. Reflect the pixel offset across the height H
-                    // This corrects the orientation for the inverted map view.
-                    const y_final = mapHeight - z_pixel_offset; 
-                    
-                    return [x_mc, y_final];
-                } else {
-                    return coordinates.map(reflectZ);
-                }
-            }
-
-            // Function to load GeoJSON, reflect coordinates, and create a source
-            function createVectorSource(url) {
+            // This function relies on the coordinate transforms set up by the Unmined class
+            function createVectorLayer(url, dataProjection, viewProjection, style) {
                 const vectorSource = new ol.source.Vector();
 
                 fetch(url)
                     .then(response => response.json())
                     .then(data => {
                         const format = new ol.format.GeoJSON();
-                        // Read features without projection transformation first
+                        // Read features:
+                        // dataProjection: The coordinates in the GeoJSON file are X, Z blocks (DATA)
+                        // featureProjection: We want the features to be transformed into the map's view coordinates (VIEW)
                         const features = format.readFeatures(data, {
-                            dataProjection: 'EPSG:4326', 
-                            featureProjection: 'EPSG:4326'
+                            dataProjection: dataProjection,
+                            featureProjection: viewProjection
                         });
-
-                        features.forEach(feature => {
-                            const geometry = feature.getGeometry();
-                            if (geometry) {
-                                // Apply the definitive reflection correction
-                                geometry.setCoordinates(reflectZ(geometry.getCoordinates()));
-                            }
-                        });
-                        
                         vectorSource.addFeatures(features);
-                        console.log(`Vector Layer loaded and reflected successfully: ${url}`);
+                        console.log(`Vector Layer loaded and aligned successfully: ${url}`);
                     })
                     .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
                 
-                return vectorSource;
+                return new ol.layer.Vector({
+                    source: vectorSource,
+                    style: style,
+                    visible: true,
+                    zIndex: 1000 
+                });
             }
 
-
-            // --------------------------
-            // 2. OpenLayers Vector Layer Setup (Roads) 
-            // --------------------------
-            
-            const roadStyleFunction = function(feature) {
+            // 2A. Roads Layer
+            const roadStyle = function(feature) {
                 return new ol.style.Style({
                     stroke: new ol.style.Stroke({ color: 'yellow', width: 5 }),
                 });
             };
 
-            const roadSource = createVectorSource('roads.geojson');
-            
-            const roadLayer = new ol.layer.Vector({
-                title: 'Roads Network',
-                source: roadSource,
-                style: roadStyleFunction,
-                visible: true,
-                zIndex: 999 
-            });
-
+            const roadLayer = createVectorLayer('roads.geojson', dataProjection, viewProjection, roadStyle);
+            roadLayer.set('title', 'Roads Network'); // Set title for the toggle control
             olMap.addLayer(roadLayer);
 
 
-            // --------------------------
-            // 3. OpenLayers Vector Layer Setup (Properties/POIs)
-            // --------------------------
-            
-            const poiStyleFunction = function(feature) {
+            // 2B. Properties/POIs Layer
+            const poiStyle = function(feature) {
                 if (feature.getGeometry().getType() === 'Polygon') {
                     return new ol.style.Style({
                         stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
@@ -287,28 +200,13 @@
                 }
             };
             
-            const poiSource = createVectorSource('properties.geojson');
-            
-            const poiLayer = new ol.layer.Vector({
-                title: 'Properties/POIs',
-                source: poiSource,
-                style: poiStyleFunction,
-                visible: true,
-                zIndex: 1000 
-            });
-
+            const poiLayer = createVectorLayer('properties.geojson', dataProjection, viewProjection, poiStyle);
+            poiLayer.set('title', 'Properties/POIs'); // Set title for the toggle control
             olMap.addLayer(poiLayer);
             
             
-            // Re-render layer on zoom change to update text visibility (optional, but good practice)
-            olMap.getView().on('change:resolution', function() {
-                roadLayer.changed();
-                poiLayer.changed();
-            });
-
-
             // --------------------------
-            // 4. Custom OpenLayers Layer Control (UNCHANGED)
+            // 3. Custom OpenLayers Layer Control (UNCHANGED)
             // --------------------------
             const layerControlDiv = document.createElement('div');
             layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
@@ -333,7 +231,7 @@
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
             // --------------------------
-            // 5. OpenLayers Popup/Interaction Logic (UNCHANGED)
+            // 4. OpenLayers Popup/Interaction Logic (UNCHANGED)
             // --------------------------
             const container = document.getElementById('popup');
             const content = document.getElementById('popup-content');
@@ -355,6 +253,7 @@
             olMap.on('click', function (evt) {
                 const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
+                    // Only check the layers we added here (not the base map or grid from unmined.js)
                     if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
                          return feature;
                     }
@@ -402,6 +301,14 @@
                     overlay.setPosition(undefined);
                 }
             });
+            
+            // Allow the unmined.js context menu to also use these vector layers
+            if(unminedMap.createContextMenu) {
+                // Remove the standard context menu, if added by the constructor, and re-add our custom one
+                // The context menu will already be part of the map object from the Unmined class constructor
+                // but if you want to modify it, you would do it here. 
+                // For now, we will assume the default one is fine.
+            }
 
         }; // End of window.onload
     </script>
