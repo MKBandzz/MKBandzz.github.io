@@ -2,31 +2,30 @@
 <html>
 
 <head>
-    <title>uNmINeD</title>
+    <title>MKB City Map - OpenLayers Only</title>
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
     <link rel="stylesheet" type="text/css" href="lib/ol.css">
-    
     <script src="lib/ol.js"></script>
-
-    <link href="lib/ol-contextmenu.css" rel="stylesheet">
-    <script src="lib/ol-contextmenu.iife.js"></script>
-
-    <script type="text/javascript" src="lib/toastify-js.js"></script>
-    <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
 
     <script type="text/javascript" src="unmined.map.properties.js"></script>
     <script type="text/javascript" src="unmined.map.regions.js"></script>
     <script type="text/javascript" src="unmined.map.players.js"></script>
+
     <script type="text/javascript" src="custom.markers.js"></script>
     <script type="text/javascript" src="unmined.js"></script>
+
+    <link href="lib/ol-contextmenu.css" rel="stylesheet">
+    <script src="lib/ol-contextmenu.iife.js"></script>
+    <script type="text/javascript" src="lib/toastify-js.js"></script>
+    <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
+    
     <link rel="stylesheet" type="text/css" href="index.css">
     
     <style type="text/css">
-        html,
-        body {
+        html, body {
             width: 100%;
             height: 100%;
             margin: 0;
@@ -49,6 +48,7 @@
             bottom: 12px;
             left: -50px;
             min-width: 150px;
+            z-index: 2000;
         }
         #popup:after, #popup:before {
             top: 100%;
@@ -131,75 +131,53 @@
             const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
             const olMap = unmined.map; 
             
-            // Define the Data Projection (Minecraft World Coordinates [X, Z])
-            // This is the projection used internally by uNmINeD's OpenLayers setup.
-            const dataProjection = new ol.proj.Projection({
-                code: 'DATA',
-                units: 'pixels',
-            });
+            // CRITICAL CHECK: If the base map failed to initialize, stop execution.
+            if (!olMap) {
+                console.error("CRITICAL ERROR: uNmINeD base map failed to initialize.");
+                return; 
+            }
+            
+            // CRITICAL CHANGE: Use explicit EPSG:3857 for the data projection, 
+            // as this is what your GeoJSON file declares in its header.
+            const dataProjectionCode = 'EPSG:3857';
+            
+            // The projection defined by uNmINeD for its view coordinates
+            const viewProjection = olMap.getView().getProjection();
+
+
+            // Function to apply the Z-inversion (Y-coordinate in OpenLayers)
+            function invertZ(coordinates) {
+                if (typeof coordinates[0] === 'number') {
+                    // Base case: [X, Z] -> [X, -Z]
+                    return [coordinates[0], -coordinates[1]];
+                } else {
+                    // Recursive case: array of points/arrays
+                    return coordinates.map(invertZ);
+                }
+            }
+
 
             // --------------------------
             // 2. OpenLayers Vector Layer Setup (Roads)
             // --------------------------
+            
+            // TEMPORARY HIGH-CONTRAST STYLE FOR DEBUGGING (Yellow lines)
             const roadStyleFunction = function(feature) {
-                const props = feature.getProperties();
-                let color = 'gray';
-                let weight = 2;
-                if(props.Type === 'Highway' || props.Type === 'Ramp'){
-                    color = '#ffaa00'; weight = 6; // Brighter yellow/orange for visibility
-                } else if(props.Type === 'Arterial' || props.Type === 'Road'){
-                    color = 'white'; weight = 4;
-                } else if(props.Type === 'Street'){
-                    color = 'gray'; weight = 2;
-                }
-                
                 return new ol.style.Style({
                     stroke: new ol.style.Stroke({
-                        color: color,
-                        width: weight,
+                        color: 'yellow', 
+                        width: 5,
                     }),
-                    // Add text style for tooltips
-                    text: new ol.style.Text({
-                        text: props.Name || '',
-                        font: '14px sans-serif',
-                        fill: new ol.style.Fill({ color: 'white' }),
-                        stroke: new ol.style.Stroke({ color: 'black', width: 3 }),
-                        placement: 'line',
-                        maxAngle: 0.785, // 45 degrees
-                        overflow: true // Allow text to overflow line geometry
-                    })
                 });
             };
 
             const roadSource = new ol.source.Vector({
-                url: 'roads.geojson',
+                url: 'roads.geojson', // Simple path, root directory confirmed
                 format: new ol.format.GeoJSON({
-                    // The GeoJSON file coordinates are absolute Minecraft blocks (X, Z).
-                    // The uNmINeD OpenLayers map uses [X, -Z].
-                    // We must tell OpenLayers how to convert the features' coordinates.
-                    defaultDataProjection: dataProjection,
-                    featureProjection: 'VIEW', // The map's view projection
-                    dataProjection: 'EPSG:4326', // Use a dummy standard projection since ol.format.GeoJSON requires it
-                    
-                    // Manual transformation function to correctly map GeoJSON Z (Y) to OL View Y.
-                    // The core transformation is to negate the Z (Y) axis.
-                    // This function runs on every coordinate read from the GeoJSON.
-                    // The input coordinates (c) are [X, Z]
-                    // The output coordinates must be [X, -Z] (the OpenLayers convention)
-                    readGeometry: function(geometry, opt_options) {
-                        const newGeometry = geometry.clone();
-                        newGeometry.applyTransform(function(coordinates, opt_dimension) {
-                            if (opt_dimension > 1) {
-                                for (let i = 0; i < coordinates.length; i += opt_dimension) {
-                                    // Invert the second component (Z/Y)
-                                    coordinates[i + 1] = -coordinates[i + 1];
-                                }
-                            }
-                            return coordinates;
-                        });
-                        return newGeometry;
-                    }
-
+                    // Use the GeoJSON declared projection code
+                    dataProjection: dataProjectionCode, 
+                    // Tell OpenLayers to convert the feature coordinates into the map's view projection
+                    featureProjection: viewProjection 
                 }),
             });
             
@@ -208,63 +186,57 @@
                 source: roadSource,
                 style: roadStyleFunction,
                 visible: true,
-                // Add this layer below markers but above the tiles
                 zIndex: 999 
             });
 
             olMap.addLayer(roadLayer);
 
+            // Listener to handle coordinate inversion *after* data is loaded
+            roadSource.once('featuresloadend', function(evt) {
+                console.log(`ROAD LAYER: Finished loading. Features: ${roadSource.getFeatures().length}`);
+                
+                roadSource.getFeatures().forEach(feature => {
+                    const geometry = feature.getGeometry();
+                    if (geometry) {
+                        geometry.setCoordinates(invertZ(geometry.getCoordinates()));
+                    }
+                });
+                
+                if (roadSource.getFeatures().length > 0) {
+                     console.log("Roads loaded successfully, vectors should be visible.");
+                } else {
+                    console.log("Roads GeoJSON loaded but contains 0 features. Check file content.");
+                }
+            });
+
 
             // --------------------------
             // 3. OpenLayers Vector Layer Setup (Properties/POIs)
             // --------------------------
+            
+            // TEMPORARY HIGH-CONTRAST STYLE FOR DEBUGGING (Lime points/Magenta polygons)
             const poiStyleFunction = function(feature) {
-                const props = feature.getProperties();
                 if (feature.getGeometry().getType() === 'Polygon') {
-                    // Polygon style (area)
                     return new ol.style.Style({
-                        stroke: new ol.style.Stroke({ color: '#0055ff', width: 2 }),
-                        fill: new ol.style.Fill({ color: 'rgba(0, 85, 255, 0.2)' })
+                        stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
+                        fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' })
                     });
                 } else {
-                    // Point style (circle marker)
                     return new ol.style.Style({
                         image: new ol.style.Circle({
-                            radius: 5,
-                            fill: new ol.style.Fill({ color: 'red' }),
-                            stroke: new ol.style.Stroke({ color: 'white', width: 1.5 })
+                            radius: 8, 
+                            fill: new ol.style.Fill({ color: 'lime' }), 
+                            stroke: new ol.style.Stroke({ color: 'black', width: 2 })
                         }),
-                        // Add text style for tooltips
-                        text: new ol.style.Text({
-                            text: props.Name || '',
-                            font: 'bold 12px sans-serif',
-                            offsetY: -10,
-                            fill: new ol.style.Fill({ color: 'white' }),
-                            stroke: new ol.style.Stroke({ color: 'black', width: 3 }),
-                        })
                     });
                 }
             };
             
             const poiSource = new ol.source.Vector({
-                url: 'properties.geojson',
+                url: 'properties.geojson', // Simple path, root directory confirmed
                 format: new ol.format.GeoJSON({
-                    defaultDataProjection: dataProjection,
-                    featureProjection: 'VIEW', 
-                    dataProjection: 'EPSG:4326', // Dummy
-                    readGeometry: function(geometry, opt_options) {
-                        const newGeometry = geometry.clone();
-                        newGeometry.applyTransform(function(coordinates, opt_dimension) {
-                            if (opt_dimension > 1) {
-                                for (let i = 0; i < coordinates.length; i += opt_dimension) {
-                                    // Invert the second component (Z/Y)
-                                    coordinates[i + 1] = -coordinates[i + 1];
-                                }
-                            }
-                            return newGeometry.transform(opt_options.dataProjection, opt_options.featureProjection);
-                        });
-                        return newGeometry;
-                    }
+                    dataProjection: dataProjectionCode, 
+                    featureProjection: viewProjection 
                 }),
             });
             
@@ -273,14 +245,38 @@
                 source: poiSource,
                 style: poiStyleFunction,
                 visible: true,
-                zIndex: 1000 // Place POIs highest
+                zIndex: 1000 
             });
 
             olMap.addLayer(poiLayer);
+            
+            poiSource.once('featuresloadend', function(evt) {
+                console.log(`POI LAYER: Finished loading. Features: ${poiSource.getFeatures().length}`);
+                
+                poiSource.getFeatures().forEach(feature => {
+                    const geometry = feature.getGeometry();
+                    if (geometry) {
+                        geometry.setCoordinates(invertZ(geometry.getCoordinates()));
+                    }
+                });
+                
+                if (poiSource.getFeatures().length > 0) {
+                     console.log("Properties loaded successfully, vectors should be visible.");
+                } else {
+                    console.log("Properties GeoJSON loaded but contains 0 features. Check file content.");
+                }
+            });
+
+            
+            // Re-render layer on zoom change to update text visibility (optional, but good practice)
+            olMap.getView().on('change:resolution', function() {
+                roadLayer.changed();
+                poiLayer.changed();
+            });
 
 
             // --------------------------
-            // 4. Custom OpenLayers Layer Control
+            // 4. Custom OpenLayers Layer Control (Unchanged)
             // --------------------------
             const layerControlDiv = document.createElement('div');
             layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
@@ -305,53 +301,45 @@
             olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
 
             // --------------------------
-            // 5. OpenLayers Popup/Interaction Logic (Popups)
+            // 5. OpenLayers Popup/Interaction Logic (Unchanged)
             // --------------------------
             const container = document.getElementById('popup');
             const content = document.getElementById('popup-content');
             const closer = document.getElementById('popup-closer');
             
-            // Create the Overlay object for the popup
             const overlay = new ol.Overlay({
                 element: container,
                 autoPan: true,
-                autoPanAnimation: {
-                    duration: 250,
-                },
+                autoPanAnimation: { duration: 250 },
             });
             olMap.addOverlay(overlay);
             
-            // Setup closer event
             closer.onclick = function () {
                 overlay.setPosition(undefined);
                 closer.blur();
                 return false;
             };
 
-            // Setup select interaction (click to show popup)
             olMap.on('click', function (evt) {
-                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature) {
-                    // Only select features from our vector layers
-                    if (feature.getGeometry().getType() !== 'Point' && feature.getGeometry().getType() !== 'LineString' && feature.getGeometry().getType() !== 'Polygon') return;
-                    return feature;
+                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+                    const layerTitle = layer ? layer.get('title') : null;
+                    if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
+                         return feature;
+                    }
                 });
                 
                 if (feature) {
                     const properties = feature.getProperties();
-                    const coordinate = evt.coordinate;
                     let htmlContent = '';
 
-                    if (properties.Type) {
-                        // Roads feature
+                    if (properties.Type && (properties.Type === 'Highway' || properties.Type === 'Road' || properties.Type === 'Street' || properties.Type === 'Ramp')) {
                         htmlContent = `
                             <div class="poi-popup-content">
                                 <b>${properties.Name || 'Unnamed Road'}</b><br/>
-                                Type: ${properties.Type || 'N/A'}<br/>
-                                Length: ${properties.Length || 'N/A'}
+                                Type: ${properties.Type || 'N/A'}
                             </div>
                         `;
-                    } else if (properties.Address) {
-                        // Properties/POIs feature
+                    } else if (properties.Address || properties.Name) {
                         htmlContent = `
                             <div class="poi-popup-content">
                                 <b>${properties.Name || 'Unnamed Property'}</b><br/>
@@ -362,7 +350,18 @@
 
                     if (htmlContent) {
                         content.innerHTML = htmlContent;
-                        overlay.setPosition(coordinate);
+                        
+                        const geom = feature.getGeometry();
+                        let popupCoord;
+                        if (geom.getType() === 'LineString') {
+                            popupCoord = geom.getCoordinateAt(0.5);
+                        } else if (geom.getType() === 'Polygon') {
+                            popupCoord = ol.extent.getCenter(geom.getExtent());
+                        } else if (geom.getType() === 'Point') {
+                            popupCoord = geom.getCoordinates();
+                        }
+                        
+                        overlay.setPosition(popupCoord);
                     } else {
                         overlay.setPosition(undefined);
                     }
