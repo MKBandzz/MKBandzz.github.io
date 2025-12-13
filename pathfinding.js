@@ -1,4 +1,7 @@
 // pathfinding.js
+// Version: 2.0
+// Description: Graph construction and Dijkstra's algorithm for OpenLayers map.
+// Features: Time-based cost (Distance/Speed), Oneway support, Nearest eligible node search (excluding Freeways/Ramps).
 
 // This object will store our graph: { "nodeId": { "neighborId": weight (time cost), ... }, ... }
 const roadGraph = {};
@@ -7,23 +10,34 @@ const roadGraph = {};
  * Calculates the Euclidean distance between two coordinates.
  */
 function calculateDistance(coord1, coord2) {
+    // Distance formula: sqrt( (x2-x1)^2 + (y2-y1)^2 )
     const dx = coord1[0] - coord2[0];
     const dy = coord1[1] - coord2[1];
     return Math.sqrt(dx * dx + dy * dy);
 }
 
 /**
- * Calculates the cost (weight) of traversing a segment of road (Cost = Time = Distance / Speed).
+ * Calculates the cost (weight) of traversing a segment of road.
+ * The cost is calculated as time (Distance / Speed) in arbitrary units.
+ * @param {number} distance - The length of the road segment.
+ * @param {number} speed - The speed limit of the road segment.
+ * @returns {number} The cost (time) to traverse the segment.
  */
 function calculateCost(distance, speed) {
+    // If speed is 0 or missing, set a very high cost to prevent usage.
     if (!speed || speed <= 0) {
         return Infinity;
     }
+    // Cost = Time = Distance / Speed
     return distance / speed; 
 }
 
 /**
  * Extracts and processes road segment attributes to create graph edges.
+ * Note: Level checking for intersections is handled by relying on GeoJSON 
+ * vertices matching at adjacent levels (e.g., Level 1 connects to Level 2 vertex).
+ * @param {Array<ol.Feature>} roadFeatures - The features from the roads GeoJSON.
+ * @returns {Object} The constructed adjacency list graph.
  */
 function buildRoadGraph(roadFeatures) {
     console.log("Building road network graph with time and level constraints...");
@@ -45,6 +59,7 @@ function buildRoadGraph(roadFeatures) {
             const startCoord = coordinates[i];
             const endCoord = coordinates[i+1];
             
+            // Use a string representation of the coordinate as the unique node ID (key)
             const startId = startCoord.join(',');
             const endId = endCoord.join(',');
             
@@ -78,30 +93,67 @@ function buildRoadGraph(roadFeatures) {
 }
 
 /**
- * Finds the closest node in the roadGraph to a given coordinate (snaps click to road).
+ * Finds the nearest node in the roadGraph that is closest to a clicked coordinate,
+ * by first finding the nearest road feature/segment on the map.
+ * @param {Array<number>} clickedCoord - The [x, z] coordinate of the user's click (in data projection).
+ * @param {ol.source.Vector} roadSource - The OpenLayers Vector Source containing all road features.
+ * @param {ol.proj.Projection} dataProjection - The map's data projection ('DATA').
+ * @param {ol.proj.Projection} viewProjection - The map's view projection ('VIEW').
+ * @returns {string|null} The nodeId (e.g., "120,-350") of the closest graph node, or null.
  */
-function findNearestNode(coord) {
-    let minDistance = Infinity;
+function findNearestNode(clickedCoord, roadSource, dataProjection, viewProjection) {
+    let minDistance = 10; // 10 blocks (user's tolerance)
     let nearestNodeId = null;
-    const allNodeIds = Object.keys(roadGraph);
 
-    if (allNodeIds.length === 0) {
-        return null;
-    }
+    let closestPoint = null;
+    
+    // Convert the clickedCoord (data projection) to the map's view projection for spatial query
+    const transformedClick = ol.proj.transform(clickedCoord, dataProjection, viewProjection);
+    
+    // Get all features near the clicked point in the view projection
+    const features = roadSource.getFeatures();
+    
+    for (const feature of features) {
+        const roadType = feature.get('Type');
+        
+        // --- Apply the Exclusion Filter ---
+        if (roadType === 'Freeway' || roadType === 'Ramp') {
+            continue; 
+        }
 
-    for (let nodeId of allNodeIds) {
-        const nodeCoord = nodeId.split(',').map(Number);
-        const distance = calculateDistance(coord, nodeCoord);
+        const geometry = feature.getGeometry();
+        // Use OpenLayers' internal function to find the closest point on the geometry to the coordinate
+        const closestPointOnFeature = geometry.getClosestPoint(transformedClick);
+        
+        // Convert the closest point back to the data projection for distance calculation
+        const closestPointData = ol.proj.transform(closestPointOnFeature, viewProjection, dataProjection);
+        
+        // Calculate the distance in the data projection (block units)
+        const distance = calculateDistance(clickedCoord, closestPointData);
 
         if (distance < minDistance) {
             minDistance = distance;
-            nearestNodeId = nodeId;
+            // This is the point on the road line, not necessarily a graph node
+            closestPoint = closestPointData; 
         }
     }
 
-    // Only accept clicks close to a road (adjust 50 to your preference)
-    if (minDistance > 50) {
-        return null; 
+    if (!closestPoint) {
+        return null; // Click was too far from an eligible road
+    }
+    
+    // 2. Find the closest *node in the graph* to that point on the road.
+    let minNodeDistance = Infinity;
+    const allNodeIds = Object.keys(roadGraph);
+
+    for (let nodeId of allNodeIds) {
+        const nodeCoord = nodeId.split(',').map(Number);
+        const distance = calculateDistance(closestPoint, nodeCoord);
+
+        if (distance < minNodeDistance) {
+            minNodeDistance = distance;
+            nearestNodeId = nodeId;
+        }
     }
     
     return nearestNodeId;
@@ -109,17 +161,20 @@ function findNearestNode(coord) {
 
 
 // --- Dijkstra's Algorithm and Priority Queue ---
+// A simple Priority Queue implementation using Array.sort (slow but functional)
 
 class PriorityQueue {
     constructor() {
+        // Stores [cost, nodeId]
         this.values = [];
     }
     enqueue(element) {
         this.values.push(element);
+        // Simple O(N log N) sort for cost ordering
         this.values.sort((a, b) => a[0] - b[0]); 
     }
     dequeue() {
-        return this.values.shift();
+        return this.values.shift(); // O(N) removal
     }
     isEmpty() {
         return this.values.length === 0;
@@ -128,6 +183,7 @@ class PriorityQueue {
 
 /**
  * Runs Dijkstra's algorithm from the start node.
+ * 
  */
 function dijkstra(startNodeId) {
     const distances = {};
