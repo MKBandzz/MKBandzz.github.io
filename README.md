@@ -1,9 +1,18 @@
 
-MKB City Map unmined export
+MKB City Interactable Map
 
 Link to map: http://mkbandzz.github.io
 
-Version 2
+Version 2.0 (12-12-2025)
 
-- more waypoints
+-Added road names and vectors
+-Added points of interest and property names and attributes.
+
+Coming soon:
+Pathfinding
+Better UI
+Search Bar for Property Names
+Color Coded Properties and roads
+
+
 
