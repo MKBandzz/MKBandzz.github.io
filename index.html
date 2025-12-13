@@ -124,7 +124,7 @@
             const worldProps = UnminedMapProperties;
             
             if (!Array.isArray(worldProps.zoomResolutions) || worldProps.zoomResolutions.length === 0) {
-                 console.error("CRITICAL FAILURE: The properties file is corrupt. Please ensure unmined.map.properties.js is fixed.");
+                 console.error("CRITICAL FAILURE: The properties file is corrupt. Please ensure unmined.map.properties.js is fixed (Step 1).");
                  return;
             }
 
@@ -138,7 +138,7 @@
             
             // Critical constants for coordinate transformation
             const mapHeight = worldProps.imageHeight; 
-            const minZBlock = worldProps.minRegionZ * 512; // Calculates -4096 (Northernmost block Z)
+            const minZBlock = worldProps.minRegionZ * 512; 
 
             const mapExtent = [0, 0, worldProps.imageWidth, mapHeight];
             const mapProjection = new ol.proj.Projection({
@@ -191,29 +191,20 @@
                 })
             });
             
-            console.log("SUCCESS: Tiles loading. Applying final vector coordinate fix...");
+            console.log("SUCCESS: Tiles loading. Applying final vector sign-flip fix...");
             
-            // *** FINAL FIX: COORDINATE REFLECTION FUNCTION WITH BLOCK OFFSET ***
-            function reflectZ(coordinates) {
+            // *** FINAL VECTOR FIX: SIMPLE SIGN FLIP ***
+            // This is the simplest way to flip the coordinate and should work if the tiles are loaded Y-down.
+            function invertZ(coordinates) {
                 if (typeof coordinates[0] === 'number') {
-                    const x_mc = coordinates[0];
-                    const z_mc = coordinates[1];
-                    
-                    // 1. Shift Z to be relative to the map's 0 (top-most block)
-                    // (z_mc - minZBlock) converts the world coordinate to a pixel-like offset [0, H]
-                    const z_pixel_offset = z_mc - minZBlock; 
-                    
-                    // 2. Reflect the pixel offset across the height H
-                    // This corrects the orientation for the inverted map view.
-                    const y_final = mapHeight - z_pixel_offset; 
-                    
-                    return [x_mc, y_final];
+                    // Base case: [X, Z] -> [X, -Z]
+                    return [coordinates[0], -coordinates[1]]; 
                 } else {
-                    return coordinates.map(reflectZ);
+                    return coordinates.map(invertZ);
                 }
             }
 
-            // Function to load GeoJSON, reflect coordinates, and create a source (UNCHANGED)
+            // Function to load GeoJSON, invert coordinates, and create a source (UNCHANGED)
             function createVectorSource(url) {
                 const vectorSource = new ol.source.Vector();
 
@@ -230,13 +221,13 @@
                         features.forEach(feature => {
                             const geometry = feature.getGeometry();
                             if (geometry) {
-                                // Apply the definitive reflection correction
-                                geometry.setCoordinates(reflectZ(geometry.getCoordinates()));
+                                // Apply the definitive sign-flip correction
+                                geometry.setCoordinates(invertZ(geometry.getCoordinates()));
                             }
                         });
                         
                         vectorSource.addFeatures(features);
-                        console.log(`Vector Layer loaded and reflected successfully: ${url}`);
+                        console.log(`Vector Layer loaded and inverted successfully: ${url}`);
                     })
                     .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
                 
