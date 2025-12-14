@@ -259,7 +259,7 @@
             
             if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
             if (window.pathLineLayer) window.pathLineLayer.getSource().clear();
-            document.getElementById('path-status').textContent = 'Right-click map to set Point A (Start).';
+            document.getElementById('path-status').textContent = 'Right-click map to set START (A).';
         }
         
         // --- Function to execute pathfinding and draw the route ---
@@ -308,16 +308,16 @@
             }
         }
 
-        // Updates the status text based on current URL parameters (UI FIX)
+        // Updates the status text based on current URL parameters
         function updateStatusText(startId, endId) {
             const statusElement = document.getElementById('path-status');
             
             if (startId && endId) {
-                statusElement.textContent = `Point A set at ${startId}. Point B set at ${endId}. Click 'Calculate Route'.`;
+                statusElement.textContent = `START (A) set at ${startId}. END (B) set at ${endId}. Click 'Calculate Route'.`;
             } else if (startId) {
-                statusElement.textContent = `Point A set at ${startId}. Right-click to set Point B (End).`;
+                statusElement.textContent = `START (A) set at ${startId}. Right-click to set END (B).`;
             } else {
-                statusElement.textContent = 'Right-click map to set Point A (Start).';
+                statusElement.textContent = 'Right-click map to set START (A).';
             }
         }
 
@@ -482,7 +482,7 @@
             olMap.addLayer(poiLayer);
             
             
-            // 4. PATHFINDING UI AND CONTROLS (Updated Text for Consistency)
+            // 4. PATHFINDING UI AND CONTROLS
             const pathControlDiv = document.createElement('div');
             pathControlDiv.className = 'ol-control ol-unselectable path-control';
             
@@ -507,8 +507,8 @@
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else {
                     let missing = [];
-                    if (!startId) missing.push('Point A (Start)'); // UI FIX
-                    if (!endId) missing.push('Point B (End)');     // UI FIX
+                    if (!startId) missing.push('Start (A)');
+                    if (!endId) missing.push('End (B)');
                     
                     Toastify({
                         text: 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.',
@@ -541,22 +541,38 @@
                 // Get current state from URL
                 let { startId, endId } = getPathParams();
 
-                // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
-                // This call uses the projections defined in unmined.js and should return [X_block, Z_block].
-                const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
+                // *** CRITICAL CHANGE: DIRECT COORDINATE CALCULATION ***
+                // We bypass ol.proj.transform to avoid subtle projection offsets 
+                // and rely only on the map view's center and resolution.
                 
-                // 2. CRITICAL FIX: Round to integer coordinates.
-                // We rely on the ol.proj.transform call above to have correctly handled the Z-axis negation.
-                // The extra *-1 is removed here because it was likely reversing the projection's work.
+                const view = olMap.getView();
+                const centerCoord = view.getCenter();
+                const resolution = view.getResolution();
+
+                // 1. Calculate the difference (in view projection units) between the click point and the map center.
+                const deltaX_proj = viewCoord[0] - centerCoord[0];
+                const deltaY_proj = viewCoord[1] - centerCoord[1];
+                
+                // 2. Convert view projection units to Minecraft blocks using the map resolution (blocks/unit).
+                const deltaX_blocks = deltaX_proj / resolution;
+                const deltaZ_blocks = deltaY_proj / resolution; 
+                
+                // 3. Get the Minecraft block coordinate [X, Z] of the map center.
+                // This single transform of the stable center point should be accurate.
+                const centerBlockCoord = ol.proj.transform(centerCoord, viewProjection, dataProjection);
+                
+                // 4. Calculate the click block coordinate, applying the Z-negation and rounding.
+                // X = Center X + Delta X
+                // Z = Center Z - Delta Y (The Y in view is the negated Z in data)
                 let preciseBlockCoord = [
-                    Math.round(blockCoord[0]),   // ROUND X to nearest block integer
-                    Math.round(blockCoord[1])    // ROUND Z (Y-axis of data projection) to nearest block integer
+                    Math.round(centerBlockCoord[0] + deltaX_blocks),
+                    Math.round(centerBlockCoord[1] - deltaZ_blocks) 
                 ];
 
 
                 // *** DEBUG LOGGING ***
                 console.log("Clicked Type:", type);
-                console.log("Transformed Block Coordinate (x, z) for search:", preciseBlockCoord); 
+                console.log("Bypassed Transform - Calculated Block Coordinate (x, z) for search:", preciseBlockCoord); 
                 console.log("Attempting to find nearest node from roadGraph...");
                 // ********************************************************************
 
@@ -569,11 +585,10 @@
                     // Update URL hash with the new coordinate
                     if (type === 'start') {
                         startId = nearestNode;
-                        // endId remains as it was, preserving the map's view parameters
                     } else {
                         if (!startId) {
                             Toastify({
-                                text: "Please set Point A (Start) first.", // UI FIX
+                                text: "Please set the START (A) point first.",
                                 duration: 3000,
                                 gravity: "top",
                                 position: "center",
@@ -581,7 +596,6 @@
                             }).showToast();
                             return;
                         }
-                        // startId remains as it was
                         endId = nearestNode;
                     }
                     
@@ -604,10 +618,10 @@
                 }
             }
             
-            // === Context Menu Setup (Updated Text for Consistency) ===
+            // === Context Menu Setup ===
             const contextmenu_items = [
                 {
-                    text: 'Set as Point A (Start)', // UI FIX
+                    text: 'Set as Path Start (A)',
                     classname: 'bold path-start-item',
                     icon: 'https://cdn-icons-png.flaticon.com/16/242/242661.png', 
                     callback: function(obj) {
@@ -615,7 +629,7 @@
                     }
                 },
                 {
-                    text: 'Set as Point B (End)', // UI FIX
+                    text: 'Set as Path End (B)',
                     classname: 'bold path-end-item',
                     icon: 'https://cdn-icons-png.flaticon.com/16/242/242662.png', 
                     callback: function(obj) {
@@ -634,7 +648,6 @@
 
             
             // 6. INITIALIZE STATE FROM URL HASH
-            // This ensures the map starts with the correct state if the URL is shared/reloaded.
             const initialParams = getPathParams();
             updateStatusText(initialParams.startId, initialParams.endId);
             
