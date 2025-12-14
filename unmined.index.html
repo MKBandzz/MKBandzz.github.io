@@ -166,7 +166,10 @@
             };
         }
 
-        // Utility to write the hash part of the URL (merges with existing parameters)
+        /**
+         * Utility to write the hash part of the URL (merges with existing parameters).
+         * This ensures the map's zoom/pan state (x, y, zoom) is preserved.
+         */
         function updateUrlHash(newStartId, newEndId) {
             // Re-read all existing parameters to ensure we don't lose the map's zoom/pan state
             const hash = window.location.hash.substring(1); 
@@ -274,6 +277,26 @@
             if (typeof calculatePath !== 'function') {
                  statusElement.textContent = "Error: Pathfinding script failed to load.";
                  return;
+            }
+
+            console.log("--- Pathfinding Debug on Calculate Click (FINAL URL Check) ---");
+            console.log(`Start Node (A): ${startId}`); // Should now show the coordinates!
+            console.log(`End Node (B): ${endId}`);     // Should now show the coordinates!
+            console.log("---------------------------------------------------------");
+
+
+            // Check again in case of race condition or hash clearing
+            if (!startId || !endId) {
+                statusElement.textContent = 'Error: Missing start or end point. Resetting...';
+                Toastify({
+                    text: 'Error: Path coordinates not found in URL. Please set points again.',
+                    duration: 5000,
+                    gravity: "top",
+                    position: "center",
+                    style: { background: "red" }
+                }).showToast();
+                resetPath();
+                return;
             }
 
             // Use IDs directly from the URL
@@ -498,11 +521,6 @@
                 // Reads state directly from URL
                 const { startId, endId } = getPathParams();
 
-                console.log("--- Pathfinding Debug on Calculate Click (URL Check) ---");
-                console.log(`Start Node (A): ${startId}`);
-                console.log(`End Node (B): ${endId}`);
-                console.log("---------------------------------------------------------");
-
                 if (startId && endId) {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else {
@@ -573,7 +591,7 @@
                 console.log("Result of findNearestNode:", nearestNode); 
 
                 if (nearestNode) {
-                    // Update URL hash with the new coordinate
+                    // 1. Update local startId/endId variables
                     if (type === 'start') {
                         startId = nearestNode;
                     } else {
@@ -590,13 +608,22 @@
                         endId = nearestNode;
                     }
                     
-                    // CRITICAL: Write new state to URL
+                    // 2. CRITICAL: Write new state to URL
                     updateUrlHash(startId, endId); 
                     
-                    // Update visuals and status
+                    // *** ADDED DEBUG AND REDRAW CALL ***
+                    const newHash = window.location.hash;
+                    console.log(`URL Hash AFTER updateUrlHash: ${newHash}`);
+
+                    // 3. Update visuals and status
+                    // We must read the state back from the URL to be 100% sure the next function call 
+                    // (which uses getPathParams) is consistent with the state we just set.
+                    const { startId: confirmedStartId, endId: confirmedEndId } = getPathParams();
+
                     drawPathMarkers(olMap, dataProjection, viewProjection);
-                    updateStatusText(startId, endId);
+                    updateStatusText(confirmedStartId, confirmedEndId);
                     window.pathLineLayer.getSource().clear(); 
+                    // **********************************
                     
                 } else {
                     Toastify({
