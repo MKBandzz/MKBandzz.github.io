@@ -38,8 +38,6 @@ function calculateDistance(coord1, coord2) {
 /**
  * Builds the road network graph from GeoJSON features.
  * This should be called once the roads.geojson file is loaded.
- * NOTE: This is a placeholder for the actual complex graph building logic.
- * The core requirement is to populate the global 'roadGraph'.
  * @param {Array<ol.Feature>} features - OpenLayers features from roads.geojson.
  */
 function buildRoadGraph(features) {
@@ -76,8 +74,19 @@ function buildRoadGraph(features) {
                 }
 
                 // Add neighbors (bidirectional graph for roads)
-                roadGraph[startNodeId].neighbors.push({ id: endNodeId, cost: cost, distance: dist });
-                roadGraph[endNodeId].neighbors.push({ id: startNodeId, cost: cost, distance: dist });
+                // Filter out adding a neighbor to itself, just in case of duplicated coordinates
+                if (startNodeId !== endNodeId) {
+                    // Check if the neighbor link already exists to prevent duplication
+                    const startHasEnd = roadGraph[startNodeId].neighbors.some(n => n.id === endNodeId);
+                    if (!startHasEnd) {
+                        roadGraph[startNodeId].neighbors.push({ id: endNodeId, cost: cost, distance: dist });
+                    }
+                    
+                    const endHasStart = roadGraph[endNodeId].neighbors.some(n => n.id === startNodeId);
+                    if (!endHasStart) {
+                         roadGraph[endNodeId].neighbors.push({ id: startNodeId, cost: cost, distance: dist });
+                    }
+                }
             }
         }
     });
@@ -99,37 +108,30 @@ function findNearestNode(preciseBlockCoord, roadLayerSource, dataProjection, vie
         console.error("Road layer source not available for nearest node search.");
         return null;
     }
+    
+    // Ensure the graph is built
+    if (Object.keys(roadGraph).length === 0) {
+        console.warn("Road graph is empty. Cannot find nearest node.");
+        return null;
+    }
 
     const MAX_DISTANCE_BLOCKS = 10;
     let nearestNodeId = null;
     let minDistance = Infinity;
     const clickCoord = preciseBlockCoord; // [x, z] in data projection
 
-    // Iterate through all features in the road layer source
-    const features = roadLayerSource.getFeatures();
+    // Iterate through all nodes in the *built graph* (which is much faster)
+    for (const nodeId in roadGraph) {
+        const node = roadGraph[nodeId];
+        const nodeCoord = [node.x, node.z];
 
-    features.forEach(feature => {
-        const geometry = feature.getGeometry();
-        if (geometry.getType() === 'LineString') {
-            const coords = geometry.getCoordinates();
-            
-            // Check only the start and end nodes of each line segment, 
-            // as these define the nodes in our graph.
-            for (const coord of [coords[0], coords[coords.length - 1]]) {
-                
-                // The coord in the feature is already in the data projection [x, z]
-                const currentNodeId = `${Math.round(coord[0])},${Math.round(coord[1])}`;
-                
-                // Calculate distance from click to node
-                const distance = calculateDistance(clickCoord, coord);
-                
-                if (distance < minDistance && distance <= MAX_DISTANCE_BLOCKS) {
-                    minDistance = distance;
-                    nearestNodeId = currentNodeId;
-                }
-            }
+        const distance = calculateDistance(clickCoord, nodeCoord);
+        
+        if (distance < minDistance && distance <= MAX_DISTANCE_BLOCKS) {
+            minDistance = distance;
+            nearestNodeId = nodeId;
         }
-    });
+    }
 
     if (nearestNodeId) {
         console.log(`Nearest node found: ${nearestNodeId} at distance ${minDistance.toFixed(2)} blocks.`);
@@ -158,10 +160,9 @@ function calculatePath(startNodeId, endNodeId) {
     // Convert end node ID to coordinate for heuristic calculation
     const endCoord = [roadGraph[endNodeId].x, roadGraph[endNodeId].z];
 
-    // Priority Queue (simulated using a simple Array and sort)
-    const openSet = [{ id: startNodeId, fScore: 0 }]; // {id, fScore}
+    // Simple Priority Queue implementation helper
+    const openSet = [{ id: startNodeId, fScore: 0 }]; 
     
-    // Maps to store pathfinding data
     const gScore = { [startNodeId]: 0 }; // Cost from start to current node
     const fScore = { [startNodeId]: calculateDistance([roadGraph[startNodeId].x, roadGraph[startNodeId].z], endCoord) }; // Estimated total cost
     const cameFrom = {}; // To reconstruct path
@@ -179,7 +180,7 @@ function calculatePath(startNodeId, endNodeId) {
             let tempId = endNodeId;
             while (tempId) {
                 const node = roadGraph[tempId];
-                // Reverse the -Z transformation done in index.html for display
+                // The coordinates stored are the [x, z] block coordinates
                 path.push([node.x, node.z]);
                 tempId = cameFrom[tempId];
             }
@@ -214,11 +215,11 @@ function calculatePath(startNodeId, endNodeId) {
                 fScore[neighborId] = tentativeGScore + heuristic;
                 
                 // Check if neighbor is already in openSet
-                const existing = openSet.find(item => item.id === neighborId);
-                if (!existing) {
+                const existingIndex = openSet.findIndex(item => item.id === neighborId);
+                if (existingIndex === -1) {
                     openSet.push({ id: neighborId, fScore: fScore[neighborId] });
                 } else {
-                    existing.fScore = fScore[neighborId];
+                    openSet[existingIndex].fScore = fScore[neighborId];
                 }
             }
         }
