@@ -180,19 +180,6 @@ UnminedCustomMarkers = {
             offsetY: 30,
             font: "bold 20px Calibri,sans serif",
         },
-				{
-            x: 100,
-            z: -100,
-            imageScale: 0.5,
-            text: "Attention! MKB City Map 2.0 is coming soon!",
-            textColor: "red", 
-            offsetX: 0,
-            offsetY: 20,
-            font: "bold 20px Calibri,sans serif",
-        },
-		
-		
-
 
 
 
