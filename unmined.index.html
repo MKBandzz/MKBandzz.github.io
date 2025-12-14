@@ -23,7 +23,6 @@
 
     <script type="text/javascript" src="custom.markers.js"></script>
     <script type="text/javascript" src="pathfinding.js"></script>
-
     <script type="text/javascript" src="unmined.js"></script>
 
     <link rel="stylesheet" type="text/css" href="index.css">
@@ -224,6 +223,7 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
+            // Assuming calculatePath is defined in pathfinding.js
             const result = calculatePath(startNodeId, endNodeId);
             
             if (result.path && result.path.length > 0) {
@@ -249,16 +249,17 @@
                 // 5. Add to the Path Line Layer
                 pathLineLayer.getSource().addFeature(pathFeature);
                 
-                // 6. Calculate total distance in blocks (assuming calculateDistance exists)
+                // 6. Calculate total distance in blocks
                 let totalDistance = 0;
                 for(let i = 0; i < result.path.length - 1; i++) {
+                    // Assuming calculateDistance is defined in pathfinding.js
                     totalDistance += calculateDistance(result.path[i], result.path[i+1]);
                 }
 
                 statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${totalDistance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
                  statusElement.textContent = result.message || 'Error: Could not find a route. Check console for details.';
-                 console.error("Pathfinding failed. Check unmined.js and pathfinding.js implementations.");
+                 console.error("Pathfinding failed. Check pathfinding.js implementations.");
             }
         }
 
@@ -340,10 +341,25 @@
                         
                         if (url === 'roads.geojson') {
                             roadLayerSource = vectorSource; 
-                            buildRoadGraph(features); 
+                            // Check function availability before calling
+                            if (typeof buildRoadGraph === 'function') {
+                                buildRoadGraph(features); 
+                            } else {
+                                console.error("ERROR: buildRoadGraph is not defined. Pathfinding graph not built.");
+                            }
                         }
                     })
-                    .catch(error => console.error(`Failed to load GeoJSON from ${url}:`, error));
+                    .catch(error => {
+                        // **CRITICAL DEBUGGING ADDITION**
+                        console.error(`ERROR: Failed to load or process GeoJSON from ${url}.`, error);
+                        Toastify({
+                            text: `CRITICAL ERROR: Failed to load/parse ${url}. Check console.`,
+                            duration: 8000,
+                            gravity: "top",
+                            position: "center",
+                            style: { background: "darkred" }
+                        }).showToast();
+                    });
                 
                 return new ol.layer.Vector({
                     source: vectorSource,
@@ -444,12 +460,22 @@
                 console.log("--- Pathfinding Debug on Calculate Click ---");
                 console.log(`Start Node (A): ${startNodeId}`);
                 console.log(`End Node (B): ${endNodeId}`);
+                console.log(`calculatePath is a function: ${typeof calculatePath === 'function'}`);
                 console.log("------------------------------------------");
                 // ******************************
 
-                // Check for existence of the IDs (they should be strings like "123,456")
-                if (startNodeId && endNodeId) {
+                // Check for existence of the IDs and the main function
+                if (startNodeId && endNodeId && typeof calculatePath === 'function') {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
+                } else if (typeof calculatePath !== 'function' || typeof calculateDistance !== 'function') {
+                     Toastify({
+                        text: "ERROR: pathfinding.js failed to load. Check console for details.",
+                        duration: 8000,
+                        gravity: "top",
+                        position: "center",
+                        style: { background: "darkred" }
+                    }).showToast();
+                    console.error("FATAL ERROR: calculatePath or calculateDistance function not found.");
                 } else {
                     // --- IMPROVED ERROR FEEDBACK FIX ---
                     let missing = [];
@@ -458,7 +484,6 @@
                     
                     const message = 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.';
                     
-                    // Use Toastify instead of the intrusive alert
                     Toastify({
                         text: message,
                         duration: 5000,
@@ -499,11 +524,23 @@
 
             // === CONTEXT MENU SELECTION HANDLER ===
             function handleContextSelection(viewCoord, type) {
+                // Ensure findNearestNode is available before proceeding
+                if (typeof findNearestNode !== 'function') {
+                    Toastify({
+                        text: "ERROR: Pathfinding setup failed. Check pathfinding.js in console.",
+                        duration: 5000,
+                        gravity: "top",
+                        position: "center",
+                        style: { background: "darkred" }
+                    }).showToast();
+                    console.error("findNearestNode is not defined. pathfinding.js failed to load.");
+                    return;
+                }
+
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
                 // Rounding is crucial for matching node IDs stored as integers
                 const preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1])];
 
-                // NOTE: Assuming findNearestNode is defined in pathfinding.js
                 const nearestNode = findNearestNode(preciseBlockCoord, roadLayerSource, dataProjection, viewProjection);
 
                 if (nearestNode) {
@@ -531,7 +568,7 @@
                     drawPathMarkers(olMap, dataProjection, viewProjection);
                 } else {
                     Toastify({
-                        text: "No eligible road found within 10 blocks (excluding Freeways/Ramps).",
+                        text: "No eligible road node found within 10 blocks.",
                         duration: 3000,
                         gravity: "top",
                         position: "center",
@@ -575,12 +612,10 @@
                 let featureClicked = false;
                 const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
-                    // Check if a road or POI feature was clicked
                     if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
                         featureClicked = true;
                         return feature;
                     }
-                    // Do not show popup for Path Markers or Path Line
                     if (layerTitle === 'Path Markers' || layerTitle === 'Calculated Path') {
                         return null; 
                     }
@@ -591,15 +626,12 @@
                     let htmlContent = `<div class="poi-popup-content">`;
                     let firstItem = true;
                     
-                    // Logic: Iterate over all properties to show details
                     for (const key in properties) {
-                        // Exclude the 'geometry' object and properties with no value
                         if (key !== 'geometry' && properties[key] !== null && properties[key] !== undefined) {
                             const value = properties[key];
                             const displayKey = key.charAt(0).toUpperCase() + key.slice(1);
                             
                             if (firstItem && (key === 'Name' || key === 'Type')) {
-                                // Use Name or Type as the bold title
                                 htmlContent += `<b>${value}</b><br>`;
                                 firstItem = false;
                             } else if (key !== 'Name' && key !== 'Type') {
@@ -608,7 +640,7 @@
                         }
                     }
                     
-                    if (firstItem) { // If Name/Type was missing, use a generic title
+                    if (firstItem) { 
                         htmlContent = `<div class="poi-popup-content"><strong>Feature Details</strong>` + htmlContent;
                     }
                     
@@ -619,12 +651,9 @@
                     const geom = feature.getGeometry();
                     let popupCoord;
                     
-                    // Determine where to place the popup
                     if (geom.getType() === 'Point' || geom.getType() === 'MultiPoint') {
-                        // For Point features, use the point itself
                         popupCoord = geom.getCoordinates().flat().slice(0, 2); 
                     } else {
-                        // For LineString/Polygon, place popup at the click location
                         popupCoord = olMap.getCoordinateFromPixel(evt.pixel);
                     }
                     
@@ -633,7 +662,6 @@
                     return; 
                 }
                 
-                // If no feature was clicked, close the popup
                 overlay.setPosition(undefined);
 
             }); 
