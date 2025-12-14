@@ -19,7 +19,7 @@ let roadGraph = {};
 
 
 // ====================================================================
-// CORE UTILITY FUNCTIONS
+// CORE UTILITY FUNCTIONS (Must be defined globally)
 // ====================================================================
 
 /**

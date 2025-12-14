@@ -10,8 +10,8 @@
     <link rel="stylesheet" type="text/css" href="lib/ol.css">
     <script src="lib/ol.js"></script>
 
-    <link href="https://cdn.jsdelivr.net/npm/ol-contextmenu@latest/dist/ol-contextmenu.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/ol-contextmenu@latest/dist/ol-contextmenu.min.js"></script>
+    <link href="lib/ol-contextmenu.css" rel="stylesheet">
+    <script src="lib/ol-contextmenu.iife.js"></script>
 
     <script type="text/javascript" src="lib/toastify-js.js"></script>
     <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
@@ -223,7 +223,7 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
-            // Assuming calculatePath is defined in pathfinding.js
+            // The ERROR happens here, because calculateDistance isn't globally available
             const result = calculatePath(startNodeId, endNodeId);
             
             if (result.path && result.path.length > 0) {
@@ -252,8 +252,14 @@
                 // 6. Calculate total distance in blocks
                 let totalDistance = 0;
                 for(let i = 0; i < result.path.length - 1; i++) {
-                    // Assuming calculateDistance is defined in pathfinding.js
-                    totalDistance += calculateDistance(result.path[i], result.path[i+1]);
+                    // This is where calculateDistance should be defined.
+                    if (typeof calculateDistance === 'function') {
+                        totalDistance += calculateDistance(result.path[i], result.path[i+1]);
+                    } else {
+                         console.error("CRITICAL: calculateDistance is not defined during path calculation.");
+                         totalDistance = 0;
+                         break;
+                    }
                 }
 
                 statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${totalDistance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
@@ -369,7 +375,7 @@
                 });
             }
 
-            // 3A. Roads Layer Definition (Style remains the same)
+            // 3A. Roads Layer Definition
             function getRoadStyle(feature) {
                 const roadType = feature.get('Type');
                 let color = '#FFFFFF'; let width = 2; 
@@ -401,7 +407,7 @@
             olMap.addLayer(roadLayer);
 
 
-            // 3B. Properties/POIs Layer Definition (Style remains the same)
+            // 3B. Properties/POIs Layer Definition
             const poiStyle = function(feature) {
                 if (feature.getGeometry().getType() === 'Polygon') {
                     return new ol.style.Style({
@@ -461,11 +467,12 @@
                 console.log(`Start Node (A): ${startNodeId}`);
                 console.log(`End Node (B): ${endNodeId}`);
                 console.log(`calculatePath is a function: ${typeof calculatePath === 'function'}`);
+                console.log(`calculateDistance is a function: ${typeof calculateDistance === 'function'}`);
                 console.log("------------------------------------------");
                 // ******************************
 
                 // Check for existence of the IDs and the main function
-                if (startNodeId && endNodeId && typeof calculatePath === 'function') {
+                if (startNodeId && endNodeId && typeof calculatePath === 'function' && typeof calculateDistance === 'function') {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else if (typeof calculatePath !== 'function' || typeof calculateDistance !== 'function') {
                      Toastify({
@@ -578,6 +585,7 @@
             }
             
             // === Context Menu Setup ===
+            // This relies on ol-contextmenu.iife.js loading correctly above.
             const contextmenu_items = [
                 {
                     text: 'Set as Path Start (A)',
