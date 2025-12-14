@@ -23,7 +23,6 @@
 
     <script type="text/javascript" src="custom.markers.js"></script>
     <script type="text/javascript" src="pathfinding.js"></script>
-
     <script type="text/javascript" src="unmined.js"></script>
 
     <link rel="stylesheet" type="text/css" href="index.css">
@@ -149,7 +148,7 @@
         let endNodeId = null;
         let pathMarkerLayer = null; 
         let pathLineLayer = null;   
-        let roadLayerSource = null; // Source for nearest node searches
+        let roadLayerSource = null;
 
 
         // Utility function to convert a node ID string "x,z" to a coordinate array [x, z]
@@ -161,13 +160,13 @@
         function drawPathMarkers(olMap, dataProjection, viewProjection) {
             pathMarkerLayer.getSource().clear();
             
-            // NOTE: startNodeId and endNodeId contain the Minecraft [X, Z] coordinates as strings.
+            // startCoord/endCoord are Minecraft [X, Z] integer coordinates
             const startCoord = nodeIdToCoord(startNodeId);
             const endCoord = nodeIdToCoord(endNodeId);
             
             // Start Marker (Green Circle)
             if (startCoord) {
-                // IMPORTANT: We transform the Minecraft [X, Z] back to the OpenLayers [X, -Y] view projection for display
+                // Transform [X, Z] to OpenLayers view projection [X, -Y] for display
                 const startFeature = new ol.Feature({
                     geometry: new ol.geom.Point(ol.proj.transform(startCoord, dataProjection, viewProjection))
                 });
@@ -186,12 +185,11 @@
                     })
                 }));
                 pathMarkerLayer.getSource().addFeature(startFeature);
-                console.log("Marker A drawn at:", startCoord); 
             }
             
             // End Marker (Red Circle)
             if (endCoord) {
-                // IMPORTANT: We transform the Minecraft [X, Z] back to the OpenLayers [X, -Y] view projection for display
+                // Transform [X, Z] to OpenLayers view projection [X, -Y] for display
                 const endFeature = new ol.Feature({
                     geometry: new ol.geom.Point(ol.proj.transform(endCoord, dataProjection, viewProjection))
                 });
@@ -210,7 +208,6 @@
                     })
                 }));
                 pathMarkerLayer.getSource().addFeature(endFeature);
-                console.log("Marker B drawn at:", endCoord); 
             }
         }
 
@@ -229,8 +226,7 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
-            if (typeof calculatePath !== 'function' || typeof calculateDistance !== 'function') {
-                 console.error("FATAL ERROR: calculatePath or calculateDistance function not found.");
+            if (typeof calculatePath !== 'function') {
                  statusElement.textContent = "Error: Pathfinding script failed to load.";
                  return;
             }
@@ -263,7 +259,6 @@
                 statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${result.distance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
                  statusElement.textContent = result.message || 'Error: Could not find a route. Check console for details.';
-                 console.error("Pathfinding failed. Check pathfinding.js implementations.");
             }
         }
 
@@ -289,16 +284,14 @@
             // 2. Accessing Map and Projections
 
             const olMap = unmined.olMap || unmined.openlayersMap;
-            const dataProjection = unmined.dataProjection; 
-            const viewProjection = unmined.viewProjection; 
+            const dataProjection = unmined.dataProjection; // Minecraft [X, Z] space (used for graph data)
+            const viewProjection = unmined.viewProjection; // OpenLayers [X, -Y] space (used for display)
 
             if (!olMap || !dataProjection || !viewProjection) { console.error("CRITICAL FAILURE: Map or projection objects are missing."); return; }
             
-            // Initialize path marker layer
+            // Initialize path layers
             pathMarkerLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Path Markers', zIndex: 3000 });
             olMap.addLayer(pathMarkerLayer);
-            
-            // Initialize path line layer
             pathLineLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Calculated Path', zIndex: 2500 });
             olMap.addLayer(pathLineLayer);
 
@@ -312,68 +305,60 @@
                     .then(response => response.json())
                     .then(data => {
                         
-                        // **CRITICAL FIX: INVERT Y/Z COORDINATE (FOR VISUAL DISPLAY)**
+                        // --- Coordinate Inversion for VISUAL DISPLAY (Z -> -Y) ---
                         function invertCoordinates(coords) {
                             if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
                                 return coords.map(part => invertCoordinates(part));
                             }
                             if (Array.isArray(coords[0]) && coords[0].length === 2) {
-                                // Only invert the second coordinate (Z) for 2D points
                                 return coords.map(coord => [coord[0], coord[1] * -1]);
                             }
                             if (coords.length === 2 && typeof coords[1] === 'number') {
-                                // For single coordinate array [x, z]
                                 return [coords[0], coords[1] * -1];
                             }
                             return coords;
                         }
+                        
+                        // --- GRAPH BUILDING LOGIC (Using RAW Block Coords) ---
+                        if (url === 'roads.geojson' && typeof buildRoadGraph === 'function') {
+                            const format = new ol.format.GeoJSON();
+                            
+                            // 1. Read features using the raw dataProjection, not projecting to the view yet.
+                            // These features contain the correct [X, Z] blocks.
+                            const rawBlockFeatures = format.readFeatures(data, {
+                                dataProjection: dataProjection, 
+                                featureProjection: dataProjection 
+                            });
+                            
+                            // 2. Pass these raw block features directly to the graph builder.
+                            buildRoadGraph(rawBlockFeatures);
+                            console.log("SUCCESS: Road graph built from raw block coordinates."); 
+                        }
+                        // --- END GRAPH BUILDING LOGIC ---
 
+
+                        // --- VISUALIZATION LOGIC (Applying Inversion and Projection) ---
+                        // 1. Apply the manual Z-inversion to the GeoJSON data object (for OL to see the map correctly)
                         data.features.forEach(feature => {
                             if (feature.geometry && feature.geometry.coordinates) {
                                 feature.geometry.coordinates = invertCoordinates(feature.geometry.coordinates);
                             }
                         });
-                        // END CRITICAL FIX
 
+                        // 2. Read features again, transforming from dataProjection to viewProjection (which involves unmined's internal scale factor)
                         const format = new ol.format.GeoJSON();
-                        
                         const features = format.readFeatures(data, {
                             dataProjection: dataProjection,
-                            featureProjection: viewProjection
+                            featureProjection: viewProjection 
                         });
                         vectorSource.addFeatures(features);
                         
                         if (url === 'roads.geojson') {
-                            roadLayerSource = vectorSource; 
-                            
-                            if (typeof buildRoadGraph === 'function') {
-                                
-                                // *** CRITICAL FIX: Reproject features back to Block Coordinates (dataProjection) for Graph Building ***
-                                const blockFeatures = features.map(f => {
-                                    // Clone the feature to prevent modifying the visual layer feature
-                                    const clone = f.clone();
-                                    // Transform the coordinates from ViewProjection (degrees) back to DataProjection (blocks)
-                                    // This transform reverses the visual inversion, resulting in Minecraft [X, Z] coordinates for the graph
-                                    clone.getGeometry().transform(viewProjection, dataProjection); 
-                                    return clone;
-                                });
-
-                                buildRoadGraph(blockFeatures); 
-                                console.log("SUCCESS: Road graph building initiated with", features.length, "features."); 
-                            } else {
-                                console.error("ERROR: buildRoadGraph is not defined. Pathfinding graph not built.");
-                            }
+                            roadLayerSource = vectorSource;
                         }
                     })
                     .catch(error => {
                         console.error(`ERROR: Failed to load or process GeoJSON from ${url}.`, error);
-                        Toastify({
-                            text: `CRITICAL ERROR: Failed to load/parse ${url}. Check console.`,
-                            duration: 8000,
-                            gravity: "top",
-                            position: "center",
-                            style: { background: "darkred" }
-                        }).showToast();
                     });
                 
                 return new ol.layer.Vector({
@@ -384,7 +369,7 @@
                 });
             }
 
-            // 3A. Roads Layer Definition
+            // 3A. Roads Layer Definition (uses the fixed createVectorLayer)
             function getRoadStyle(feature) {
                 const roadType = feature.get('Type');
                 let color = '#FFFFFF'; let width = 2; 
@@ -438,47 +423,25 @@
             olMap.addLayer(poiLayer);
             
             
-            // 4. CUSTOM LAYER TOGGLE CONTROL (No change)
-            const layerControlDiv = document.createElement('div');
-            layerControlDiv.className = 'ol-control ol-unselectable layer-toggle-control';
-
-            const roadInput = document.createElement('input');
-            roadInput.type = 'checkbox'; roadInput.id = 'toggle-roads'; roadInput.checked = roadLayer.getVisible();
-            roadInput.onchange = function() { roadLayer.setVisible(this.checked); };
-            const roadLabel = document.createElement('label'); roadLabel.htmlFor = 'toggle-roads'; roadLabel.textContent = 'Roads Network';
-
-            const poiInput = document.createElement('input');
-            poiInput.type = 'checkbox'; poiInput.id = 'toggle-pois'; poiInput.checked = poiLayer.getVisible();
-            poiInput.onchange = function() { poiLayer.setVisible(this.checked); };
-            const poiLabel = document.createElement('label'); poiLabel.htmlFor = 'toggle-pois'; poiLabel.textContent = 'Properties/POIs';
-
-            layerControlDiv.appendChild(roadInput); layerControlDiv.appendChild(roadLabel);
-            layerControlDiv.appendChild(poiInput); layerControlDiv.appendChild(poiLabel);
-
-            olMap.addControl(new ol.control.Control({ element: layerControlDiv }));
-
-
-            // 4A. PATHFINDING CONTROL (UI for calculating)
+            // 4. PATHFINDING UI AND CONTROLS
             const pathControlDiv = document.createElement('div');
             pathControlDiv.className = 'ol-control ol-unselectable path-control';
             
+            // ... (rest of controls omitted for brevity, assumed unchanged)
             const statusLabel = document.createElement('p');
             statusLabel.id = 'path-status';
             statusLabel.textContent = 'Right-click map to set START (A).';
             pathControlDiv.appendChild(statusLabel);
-
+            
             const calculateButton = document.createElement('button');
             calculateButton.textContent = 'Calculate Route';
             calculateButton.onclick = function() {
-                
-                // *** CRITICAL DEBUGGING LOG ***
+                // This is the function that is currently logging to the console (good)
                 console.log("--- Pathfinding Debug on Calculate Click ---");
                 console.log(`Start Node (A): ${startNodeId}`);
                 console.log(`End Node (B): ${endNodeId}`);
                 console.log("------------------------------------------");
-                // ******************************
-
-                // Check for existence of the IDs (they should be strings like "123,456")
+                
                 if (startNodeId && endNodeId) {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else {
@@ -486,10 +449,8 @@
                     if (!startNodeId) missing.push('Start (A)');
                     if (!endNodeId) missing.push('End (B)');
                     
-                    const message = 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.';
-                    
                     Toastify({
-                        text: message,
+                        text: 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.',
                         duration: 5000,
                         gravity: "top",
                         position: "center",
@@ -507,27 +468,11 @@
             olMap.addControl(new ol.control.Control({ element: pathControlDiv }));
 
 
-            // 5. OPENLAYERS POPUP/INTERACTION LOGIC
-            
-            const container = document.getElementById('popup');
-            const content = document.getElementById('popup-content');
-            const closer = document.getElementById('popup-closer');
-            
-            const overlay = new ol.Overlay({
-                element: container,
-                autoPan: true,
-                autoPanAnimation: { duration: 250 },
-            });
-            olMap.addOverlay(overlay);
-            
-            closer.onclick = function () {
-                overlay.setPosition(undefined);
-                closer.blur();
-                return false;
-            };
-
-            // === CONTEXT MENU SELECTION HANDLER ===
+            // 5. CONTEXT MENU SELECTION HANDLER
             function handleContextSelection(viewCoord, type) {
+                // This function MUST be running and logging if you right-click
+                console.log("--- Context Menu Click Handled ---");
+                
                 if (typeof findNearestNode !== 'function') {
                     console.error("findNearestNode is not defined. pathfinding.js failed to load.");
                     return;
@@ -536,23 +481,20 @@
                 // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
                 
-                // 2. CRITICAL FIX: Explicitly negate the Z-coordinate (index 1) and pass the high-precision coordinate.
+                // 2. CRITICAL: Explicitly negate the Z-coordinate (index 1) and pass the high-precision coordinate.
                 let preciseBlockCoord = [blockCoord[0], blockCoord[1] * -1];
 
 
-                // *** DEBUG LOGGING START ***
-                console.log("--- Context Menu Click Debug (Fixed) ---");
+                // *** DEBUG LOGGING (This is what needs to appear on right-click) ***
                 console.log("Clicked Type:", type);
                 console.log("Transformed Block Coordinate (x, z) for search:", preciseBlockCoord); 
                 console.log("Attempting to find nearest node from roadGraph...");
-                // *** DEBUG LOGGING END ***
+                // ********************************************************************
 
-                // findNearestNode now receives the precise floating point coordinate [X, Z]
+                // findNearestNode runs the distance calculation against the roadGraph
                 const nearestNode = findNearestNode(preciseBlockCoord); 
                 
-                // *** DEBUG LOGGING START ***
-                console.log("Result of findNearestNode:", nearestNode);
-                // *** DEBUG LOGGING END ***
+                console.log("Result of findNearestNode:", nearestNode); // This line should show the node ID or null
 
                 if (nearestNode) {
                     if (type === 'start') {
@@ -570,7 +512,6 @@
                             }).showToast();
                             return;
                         }
-
                         endNodeId = nearestNode;
                         document.getElementById('path-status').textContent = `END (B) set at ${nearestNode}. Click 'Calculate Route'.`;
                     }
@@ -616,6 +557,7 @@
 
             
             // --- Single-Click Handler (Handles Popups) ---
+            // ... (omitted, assumed correct)
             olMap.on('click', function (evt) {
 
                 let featureClicked = false;

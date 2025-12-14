@@ -61,7 +61,6 @@ function findNearestNode(targetCoord) {
         if (distance < minDistance && distance <= MAX_DISTANCE) {
             minDistance = distance;
             nearestNodeId = nodeId;
-            // console.log(`Found closer node: ${nodeId} at distance: ${distance.toFixed(3)}`);
         }
     }
     
@@ -78,7 +77,7 @@ function findNearestNode(targetCoord) {
 
 /**
  * Builds the road network graph from GeoJSON features.
- * NOTE: Features are expected to be in Data/Block Projection [X, Z] (Minecraft coords).
+ * Features are guaranteed by index.html to be in raw Minecraft block [X, Z] coordinates.
  * @param {Array<ol.Feature>} features - OpenLayers features from roads.geojson.
  */
 function buildRoadGraph(features) {
