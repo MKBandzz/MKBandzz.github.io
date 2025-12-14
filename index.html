@@ -259,7 +259,7 @@
             
             if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
             if (window.pathLineLayer) window.pathLineLayer.getSource().clear();
-            document.getElementById('path-status').textContent = 'Right-click map to set START (A).';
+            document.getElementById('path-status').textContent = 'Right-click map to set Point A (Start).';
         }
         
         // --- Function to execute pathfinding and draw the route ---
@@ -308,16 +308,16 @@
             }
         }
 
-        // Updates the status text based on current URL parameters
+        // Updates the status text based on current URL parameters (UI FIX)
         function updateStatusText(startId, endId) {
             const statusElement = document.getElementById('path-status');
             
             if (startId && endId) {
-                statusElement.textContent = `START (A) set at ${startId}. END (B) set at ${endId}. Click 'Calculate Route'.`;
+                statusElement.textContent = `Point A set at ${startId}. Point B set at ${endId}. Click 'Calculate Route'.`;
             } else if (startId) {
-                statusElement.textContent = `START (A) set at ${startId}. Right-click to set END (B).`;
+                statusElement.textContent = `Point A set at ${startId}. Right-click to set Point B (End).`;
             } else {
-                statusElement.textContent = 'Right-click map to set START (A).';
+                statusElement.textContent = 'Right-click map to set Point A (Start).';
             }
         }
 
@@ -482,7 +482,7 @@
             olMap.addLayer(poiLayer);
             
             
-            // 4. PATHFINDING UI AND CONTROLS
+            // 4. PATHFINDING UI AND CONTROLS (Updated Text for Consistency)
             const pathControlDiv = document.createElement('div');
             pathControlDiv.className = 'ol-control ol-unselectable path-control';
             
@@ -507,8 +507,8 @@
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else {
                     let missing = [];
-                    if (!startId) missing.push('Start (A)');
-                    if (!endId) missing.push('End (B)');
+                    if (!startId) missing.push('Point A (Start)'); // UI FIX
+                    if (!endId) missing.push('Point B (End)');     // UI FIX
                     
                     Toastify({
                         text: 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.',
@@ -542,13 +542,15 @@
                 let { startId, endId } = getPathParams();
 
                 // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
+                // This call uses the projections defined in unmined.js and should return [X_block, Z_block].
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
                 
-                // 2. CRITICAL FIX: Round to integer coordinates and correctly negate the Z-axis.
-                // The road graph nodes are based on integer block coordinates, so the search must use integers.
+                // 2. CRITICAL FIX: Round to integer coordinates.
+                // We rely on the ol.proj.transform call above to have correctly handled the Z-axis negation.
+                // The extra *-1 is removed here because it was likely reversing the projection's work.
                 let preciseBlockCoord = [
-                    Math.round(blockCoord[0]),    // ROUND X to nearest block integer
-                    Math.round(blockCoord[1] * -1) // Negate the OpenLayers Z, then ROUND to nearest block integer Z
+                    Math.round(blockCoord[0]),   // ROUND X to nearest block integer
+                    Math.round(blockCoord[1])    // ROUND Z (Y-axis of data projection) to nearest block integer
                 ];
 
 
@@ -571,7 +573,7 @@
                     } else {
                         if (!startId) {
                             Toastify({
-                                text: "Please set the START (A) point first.",
+                                text: "Please set Point A (Start) first.", // UI FIX
                                 duration: 3000,
                                 gravity: "top",
                                 position: "center",
@@ -602,10 +604,10 @@
                 }
             }
             
-            // === Context Menu Setup ===
+            // === Context Menu Setup (Updated Text for Consistency) ===
             const contextmenu_items = [
                 {
-                    text: 'Set as Path Start (A)',
+                    text: 'Set as Point A (Start)', // UI FIX
                     classname: 'bold path-start-item',
                     icon: 'https://cdn-icons-png.flaticon.com/16/242/242661.png', 
                     callback: function(obj) {
@@ -613,7 +615,7 @@
                     }
                 },
                 {
-                    text: 'Set as Path End (B)',
+                    text: 'Set as Point B (End)', // UI FIX
                     classname: 'bold path-end-item',
                     icon: 'https://cdn-icons-png.flaticon.com/16/242/242662.png', 
                     callback: function(obj) {
