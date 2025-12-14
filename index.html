@@ -151,7 +151,7 @@
         window.roadLayerSource = null;
 
         // =================================================================
-        // URL STATE HANDLERS - NOW WITH CONFLICT RESOLUTION
+        // URL STATE HANDLERS
         // =================================================================
 
         // Utility to read the hash part of the URL and get ALL parameters
@@ -186,6 +186,7 @@
             }
             
             // Write the full, merged set of parameters back to the URL
+            // This preserves the map's zoom/pan state (e.g., zoom=10&x=100)
             window.location.hash = allParams.toString();
         }
 
@@ -267,6 +268,7 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
+            // Read state directly from URL
             const { startId, endId } = getPathParams();
 
             if (typeof calculatePath !== 'function') {
@@ -493,6 +495,7 @@
             calculateButton.textContent = 'Calculate Route';
             calculateButton.onclick = function() {
                 
+                // Reads state directly from URL
                 const { startId, endId } = getPathParams();
 
                 console.log("--- Pathfinding Debug on Calculate Click (URL Check) ---");
@@ -535,14 +538,18 @@
                     return;
                 }
                 
-                // Get current state from URL (includes map center, zoom, etc.)
+                // Get current state from URL
                 let { startId, endId } = getPathParams();
 
                 // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
                 
-                // 2. CRITICAL: Explicitly negate the Z-coordinate (index 1) and pass the high-precision coordinate.
-                let preciseBlockCoord = [blockCoord[0], blockCoord[1] * -1];
+                // 2. CRITICAL FIX: Round to integer coordinates and correctly negate the Z-axis.
+                // The road graph nodes are based on integer block coordinates, so the search must use integers.
+                let preciseBlockCoord = [
+                    Math.round(blockCoord[0]),    // ROUND X to nearest block integer
+                    Math.round(blockCoord[1] * -1) // Negate the OpenLayers Z, then ROUND to nearest block integer Z
+                ];
 
 
                 // *** DEBUG LOGGING ***
@@ -625,6 +632,7 @@
 
             
             // 6. INITIALIZE STATE FROM URL HASH
+            // This ensures the map starts with the correct state if the URL is shared/reloaded.
             const initialParams = getPathParams();
             updateStatusText(initialParams.startId, initialParams.endId);
             
