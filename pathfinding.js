@@ -41,7 +41,8 @@ function calculateDistance(coord1, coord2) {
  * @returns {string|null} The ID of the nearest node (e.g., "123,456") or null.
  */
 function findNearestNode(targetCoord) {
-    const MAX_DISTANCE = 15; // Search radius in blocks
+    // *** FIX: Increased Search Radius to 30 Blocks for more forgiving clicks ***
+    const MAX_DISTANCE = 30; // Search radius in blocks
     let nearestNodeId = null;
     let minDistance = Infinity;
     
