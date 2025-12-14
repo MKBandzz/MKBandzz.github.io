@@ -151,7 +151,7 @@
         window.roadLayerSource = null;
 
         // =================================================================
-        // URL STATE HANDLERS
+        // URL STATE HANDLERS (CRITICAL FOR SAVING/READING POINTS)
         // =================================================================
 
         // Utility to read the hash part of the URL and get ALL parameters
@@ -159,9 +159,8 @@
             const hash = window.location.hash.substring(1); // Remove '#'
             const params = new URLSearchParams(hash);
             
-            // Return all parameters, including the specific path ones
             return {
-                allParams: params, // The full URLSearchParams object (contains zoom, x, y, etc.)
+                allParams: params, 
                 startId: params.get('start'),
                 endId: params.get('end')
             };
@@ -169,7 +168,9 @@
 
         // Utility to write the hash part of the URL (merges with existing parameters)
         function updateUrlHash(newStartId, newEndId) {
-            const { allParams } = getPathParams();
+            // Re-read all existing parameters to ensure we don't lose the map's zoom/pan state
+            const hash = window.location.hash.substring(1); 
+            const allParams = new URLSearchParams(hash);
             
             // Update or delete 'start'
             if (newStartId) {
@@ -186,7 +187,6 @@
             }
             
             // Write the full, merged set of parameters back to the URL
-            // This preserves the map's zoom/pan state (e.g., zoom=10&x=100)
             window.location.hash = allParams.toString();
         }
 
@@ -529,7 +529,7 @@
             olMap.addControl(new ol.control.Control({ element: pathControlDiv }));
 
 
-            // 5. CONTEXT MENU SELECTION HANDLER
+            // 5. CONTEXT MENU SELECTION HANDLER (WITH ROBUST COORDINATE CALCULATION)
             function handleContextSelection(viewCoord, type) {
                 console.log("--- Context Menu Click Handled ---");
                 
@@ -541,29 +541,22 @@
                 // Get current state from URL
                 let { startId, endId } = getPathParams();
 
-                // *** CRITICAL CHANGE: DIRECT COORDINATE CALCULATION ***
-                // We bypass ol.proj.transform to avoid subtle projection offsets 
-                // and rely only on the map view's center and resolution.
+                // *** ROBUST COORDINATE CALCULATION (GeoJSON-only method) ***
                 
                 const view = olMap.getView();
                 const centerCoord = view.getCenter();
                 const resolution = view.getResolution();
-
-                // 1. Calculate the difference (in view projection units) between the click point and the map center.
+                
                 const deltaX_proj = viewCoord[0] - centerCoord[0];
                 const deltaY_proj = viewCoord[1] - centerCoord[1];
                 
-                // 2. Convert view projection units to Minecraft blocks using the map resolution (blocks/unit).
                 const deltaX_blocks = deltaX_proj / resolution;
                 const deltaZ_blocks = deltaY_proj / resolution; 
                 
-                // 3. Get the Minecraft block coordinate [X, Z] of the map center.
-                // This single transform of the stable center point should be accurate.
+                // Transform center point to the data projection [X, Z]
                 const centerBlockCoord = ol.proj.transform(centerCoord, viewProjection, dataProjection);
                 
-                // 4. Calculate the click block coordinate, applying the Z-negation and rounding.
-                // X = Center X + Delta X
-                // Z = Center Z - Delta Y (The Y in view is the negated Z in data)
+                // Calculate the final click coordinate, applying the Z-negation and rounding
                 let preciseBlockCoord = [
                     Math.round(centerBlockCoord[0] + deltaX_blocks),
                     Math.round(centerBlockCoord[1] - deltaZ_blocks) 
@@ -572,10 +565,8 @@
 
                 // *** DEBUG LOGGING ***
                 console.log("Clicked Type:", type);
-                console.log("Bypassed Transform - Calculated Block Coordinate (x, z) for search:", preciseBlockCoord); 
-                console.log("Attempting to find nearest node from roadGraph...");
-                // ********************************************************************
-
+                console.log("Calculated Block Coordinate (x, z) for search:", preciseBlockCoord); 
+                
                 // findNearestNode runs the distance calculation against the roadGraph
                 const nearestNode = findNearestNode(preciseBlockCoord); 
                 
@@ -599,7 +590,7 @@
                         endId = nearestNode;
                     }
                     
-                    // Write new state to URL (this merges the start/end params with existing hash data)
+                    // CRITICAL: Write new state to URL
                     updateUrlHash(startId, endId); 
                     
                     // Update visuals and status
@@ -609,7 +600,7 @@
                     
                 } else {
                     Toastify({
-                        text: "No eligible road node found within 15 blocks. Click closer to a road.",
+                        text: "No eligible road node found within 30 blocks. Click closer to a road.",
                         duration: 4000,
                         gravity: "top",
                         position: "center",
