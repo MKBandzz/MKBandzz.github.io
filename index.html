@@ -23,6 +23,7 @@
 
     <script type="text/javascript" src="custom.markers.js"></script>
     <script type="text/javascript" src="pathfinding.js"></script>
+    <script src="lib/ol-contextmenu.iife.js"></script> 
     <script type="text/javascript" src="unmined.js"></script>
 
     <link rel="stylesheet" type="text/css" href="index.css">
@@ -257,6 +258,7 @@
                 // 5. Add to the Path Line Layer
                 pathLineLayer.getSource().addFeature(pathFeature);
                 
+                // The distance property is now correctly returned from calculatePath (in pathfinding.js)
                 statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${result.distance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
                  statusElement.textContent = result.message || 'Error: Could not find a route. Check console for details.';
@@ -347,9 +349,10 @@
                                 
                                 // *** CRITICAL FIX: Reproject features back to Block Coordinates (dataProjection) for Graph Building ***
                                 const blockFeatures = features.map(f => {
-                                    // Clone the feature to preserve the visual layer feature
+                                    // Clone the feature to prevent modifying the visual layer feature
                                     const clone = f.clone();
                                     // Transform the coordinates from ViewProjection (degrees) back to DataProjection (blocks)
+                                    // This gives us the Minecraft block coordinates [X, Z] with Z correctly negated.
                                     clone.getGeometry().transform(viewProjection, dataProjection); 
                                     return clone;
                                 });
@@ -548,19 +551,23 @@
                     return;
                 }
 
+                // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
-                // Rounding is crucial for matching node IDs stored as integers
-                const preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1])];
+                
+                // 2. CRITICAL FIX: Ensure the Z-coordinate is negated to match the graph's node IDs (X, -Z).
+                // This final manual negation is often necessary to align OL's Y-up projection with Minecraft's Z-down.
+                let preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1] * -1)];
+
 
                 // *** DEBUG LOGGING START ***
-                console.log("--- Context Menu Click Debug ---");
+                console.log("--- Context Menu Click Debug (Fixed) ---");
                 console.log("Clicked Type:", type);
-                console.log("Transformed Block Coordinate (x, z):", preciseBlockCoord);
+                console.log("Transformed Block Coordinate (x, z) for search:", preciseBlockCoord); 
                 console.log("Attempting to find nearest node...");
                 // *** DEBUG LOGGING END ***
 
                 // findNearestNode uses the globally available roadGraph
-                const nearestNode = findNearestNode(preciseBlockCoord); // No need to pass roadLayerSource, it uses the global graph
+                const nearestNode = findNearestNode(preciseBlockCoord); 
                 
                 // *** DEBUG LOGGING START ***
                 console.log("Result of findNearestNode:", nearestNode);
