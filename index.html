@@ -23,6 +23,7 @@
 
     <script type="text/javascript" src="custom.markers.js"></script>
     <script type="text/javascript" src="pathfinding.js"></script>
+
     <script type="text/javascript" src="unmined.js"></script>
 
     <link rel="stylesheet" type="text/css" href="index.css">
@@ -160,11 +161,13 @@
         function drawPathMarkers(olMap, dataProjection, viewProjection) {
             pathMarkerLayer.getSource().clear();
             
+            // NOTE: startNodeId and endNodeId contain the Minecraft [X, Z] coordinates as strings.
             const startCoord = nodeIdToCoord(startNodeId);
             const endCoord = nodeIdToCoord(endNodeId);
             
             // Start Marker (Green Circle)
             if (startCoord) {
+                // IMPORTANT: We transform the Minecraft [X, Z] back to the OpenLayers [X, -Y] view projection for display
                 const startFeature = new ol.Feature({
                     geometry: new ol.geom.Point(ol.proj.transform(startCoord, dataProjection, viewProjection))
                 });
@@ -188,6 +191,7 @@
             
             // End Marker (Red Circle)
             if (endCoord) {
+                // IMPORTANT: We transform the Minecraft [X, Z] back to the OpenLayers [X, -Y] view projection for display
                 const endFeature = new ol.Feature({
                     geometry: new ol.geom.Point(ol.proj.transform(endCoord, dataProjection, viewProjection))
                 });
@@ -225,7 +229,6 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
-            // Safety check for functions
             if (typeof calculatePath !== 'function' || typeof calculateDistance !== 'function') {
                  console.error("FATAL ERROR: calculatePath or calculateDistance function not found.");
                  statusElement.textContent = "Error: Pathfinding script failed to load.";
@@ -257,7 +260,6 @@
                 // 5. Add to the Path Line Layer
                 pathLineLayer.getSource().addFeature(pathFeature);
                 
-                // The distance property is now correctly returned from calculatePath (in pathfinding.js)
                 statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${result.distance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
                  statusElement.textContent = result.message || 'Error: Could not find a route. Check console for details.';
@@ -351,7 +353,7 @@
                                     // Clone the feature to prevent modifying the visual layer feature
                                     const clone = f.clone();
                                     // Transform the coordinates from ViewProjection (degrees) back to DataProjection (blocks)
-                                    // This transform effectively reverses the visual inversion, resulting in Minecraft [X, Z] coordinates.
+                                    // This transform reverses the visual inversion, resulting in Minecraft [X, Z] coordinates for the graph
                                     clone.getGeometry().transform(viewProjection, dataProjection); 
                                     return clone;
                                 });
@@ -473,25 +475,13 @@
                 console.log("--- Pathfinding Debug on Calculate Click ---");
                 console.log(`Start Node (A): ${startNodeId}`);
                 console.log(`End Node (B): ${endNodeId}`);
-                console.log(`calculatePath is a function: ${typeof calculatePath === 'function'}`);
-                console.log(`calculateDistance is a function: ${typeof calculateDistance === 'function'}`);
                 console.log("------------------------------------------");
                 // ******************************
 
-                // Check for existence of the IDs and the main function
-                if (startNodeId && endNodeId && typeof calculatePath === 'function' && typeof calculateDistance === 'function') {
+                // Check for existence of the IDs (they should be strings like "123,456")
+                if (startNodeId && endNodeId) {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
-                } else if (typeof calculatePath !== 'function' || typeof calculateDistance !== 'function') {
-                     Toastify({
-                        text: "ERROR: pathfinding.js failed to load. Check console for details.",
-                        duration: 8000,
-                        gravity: "top",
-                        position: "center",
-                        style: { background: "darkred" }
-                    }).showToast();
-                    console.error("FATAL ERROR: calculatePath or calculateDistance function not found.");
                 } else {
-                    // --- IMPROVED ERROR FEEDBACK FIX ---
                     let missing = [];
                     if (!startNodeId) missing.push('Start (A)');
                     if (!endNodeId) missing.push('End (B)');
@@ -539,13 +529,6 @@
             // === CONTEXT MENU SELECTION HANDLER ===
             function handleContextSelection(viewCoord, type) {
                 if (typeof findNearestNode !== 'function') {
-                    Toastify({
-                        text: "ERROR: Pathfinding setup failed. Check pathfinding.js in console.",
-                        duration: 5000,
-                        gravity: "top",
-                        position: "center",
-                        style: { background: "darkred" }
-                    }).showToast();
                     console.error("findNearestNode is not defined. pathfinding.js failed to load.");
                     return;
                 }
@@ -553,18 +536,18 @@
                 // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
                 
-                // 2. CRITICAL FIX: Ensure the Z-coordinate is negated to align OL's Y-up projection with Minecraft's Z-down/Graph's Z-up
-                let preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1] * -1)];
+                // 2. CRITICAL FIX: Explicitly negate the Z-coordinate (index 1) and pass the high-precision coordinate.
+                let preciseBlockCoord = [blockCoord[0], blockCoord[1] * -1];
 
 
                 // *** DEBUG LOGGING START ***
                 console.log("--- Context Menu Click Debug (Fixed) ---");
                 console.log("Clicked Type:", type);
                 console.log("Transformed Block Coordinate (x, z) for search:", preciseBlockCoord); 
-                console.log("Attempting to find nearest node...");
+                console.log("Attempting to find nearest node from roadGraph...");
                 // *** DEBUG LOGGING END ***
 
-                // findNearestNode uses the globally available roadGraph, comparing preciseBlockCoord [X, Z] with node [X, Z]
+                // findNearestNode now receives the precise floating point coordinate [X, Z]
                 const nearestNode = findNearestNode(preciseBlockCoord); 
                 
                 // *** DEBUG LOGGING START ***
@@ -591,7 +574,6 @@
                         endNodeId = nearestNode;
                         document.getElementById('path-status').textContent = `END (B) set at ${nearestNode}. Click 'Calculate Route'.`;
                     }
-                    // This function calls ol.proj.transform to draw the marker, which is correct
                     drawPathMarkers(olMap, dataProjection, viewProjection);
                 } else {
                     Toastify({
