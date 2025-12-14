@@ -143,12 +143,14 @@
 
     <script type="text/javascript">
         
-        // GLOBAL STATE FOR PATHFINDING
-        let startNodeId = null; 
-        let endNodeId = null;
-        let pathMarkerLayer = null; 
-        let pathLineLayer = null;   
-        let roadLayerSource = null;
+        // =================================================================
+        // GLOBAL STATE FOR PATHFINDING (EXPLICITLY using 'window' for scope fix)
+        // =================================================================
+        window.startNodeId = null; 
+        window.endNodeId = null;
+        window.pathMarkerLayer = null; 
+        window.pathLineLayer = null;   
+        window.roadLayerSource = null;
 
 
         // Utility function to convert a node ID string "x,z" to a coordinate array [x, z]
@@ -158,11 +160,11 @@
         
         // Utility to draw the start and end markers
         function drawPathMarkers(olMap, dataProjection, viewProjection) {
-            pathMarkerLayer.getSource().clear();
+            window.pathMarkerLayer.getSource().clear();
             
-            // startCoord/endCoord are Minecraft [X, Z] integer coordinates
-            const startCoord = nodeIdToCoord(startNodeId);
-            const endCoord = nodeIdToCoord(endNodeId);
+            // NOTE: Use window.startNodeId and window.endNodeId
+            const startCoord = nodeIdToCoord(window.startNodeId);
+            const endCoord = nodeIdToCoord(window.endNodeId);
             
             // Start Marker (Green Circle)
             if (startCoord) {
@@ -184,7 +186,7 @@
                         stroke: new ol.style.Stroke({ color: 'white', width: 2 })
                     })
                 }));
-                pathMarkerLayer.getSource().addFeature(startFeature);
+                window.pathMarkerLayer.getSource().addFeature(startFeature);
             }
             
             // End Marker (Red Circle)
@@ -207,22 +209,22 @@
                         stroke: new ol.style.Stroke({ color: 'white', width: 2 })
                     })
                 }));
-                pathMarkerLayer.getSource().addFeature(endFeature);
+                window.pathMarkerLayer.getSource().addFeature(endFeature);
             }
         }
 
         // Utility to reset the pathfinding state completely
         function resetPath() {
-            startNodeId = null;
-            endNodeId = null;
-            if (pathMarkerLayer) pathMarkerLayer.getSource().clear();
-            if (pathLineLayer) pathLineLayer.getSource().clear();
+            window.startNodeId = null;
+            window.endNodeId = null;
+            if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
+            if (window.pathLineLayer) window.pathLineLayer.getSource().clear();
             document.getElementById('path-status').textContent = 'Right-click map to set START (A).';
         }
         
         // --- Function to execute pathfinding and draw the route ---
         function handleCalculatePath(olMap, dataProjection, viewProjection) {
-            pathLineLayer.getSource().clear();
+            window.pathLineLayer.getSource().clear();
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
@@ -231,7 +233,7 @@
                  return;
             }
 
-            const result = calculatePath(startNodeId, endNodeId);
+            const result = calculatePath(window.startNodeId, window.endNodeId);
             
             if (result.path && result.path.length > 0) {
                 
@@ -254,7 +256,7 @@
                 }));
                 
                 // 5. Add to the Path Line Layer
-                pathLineLayer.getSource().addFeature(pathFeature);
+                window.pathLineLayer.getSource().addFeature(pathFeature);
                 
                 statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${result.distance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
@@ -290,10 +292,10 @@
             if (!olMap || !dataProjection || !viewProjection) { console.error("CRITICAL FAILURE: Map or projection objects are missing."); return; }
             
             // Initialize path layers
-            pathMarkerLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Path Markers', zIndex: 3000 });
-            olMap.addLayer(pathMarkerLayer);
-            pathLineLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Calculated Path', zIndex: 2500 });
-            olMap.addLayer(pathLineLayer);
+            window.pathMarkerLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Path Markers', zIndex: 3000 });
+            olMap.addLayer(window.pathMarkerLayer);
+            window.pathLineLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Calculated Path', zIndex: 2500 });
+            olMap.addLayer(window.pathLineLayer);
 
 
             // 3. VECTOR LAYER SETUP UTILITY WITH COORDINATE NEGATION FIX
@@ -345,7 +347,7 @@
                             }
                         });
 
-                        // 2. Read features again, transforming from dataProjection to viewProjection (which involves unmined's internal scale factor)
+                        // 2. Read features again, transforming from dataProjection to viewProjection 
                         const format = new ol.format.GeoJSON();
                         const features = format.readFeatures(data, {
                             dataProjection: dataProjection,
@@ -354,7 +356,7 @@
                         vectorSource.addFeatures(features);
                         
                         if (url === 'roads.geojson') {
-                            roadLayerSource = vectorSource;
+                            window.roadLayerSource = vectorSource;
                         }
                     })
                     .catch(error => {
@@ -427,27 +429,27 @@
             const pathControlDiv = document.createElement('div');
             pathControlDiv.className = 'ol-control ol-unselectable path-control';
             
-            // ... (rest of controls omitted for brevity, assumed unchanged)
             const statusLabel = document.createElement('p');
             statusLabel.id = 'path-status';
             statusLabel.textContent = 'Right-click map to set START (A).';
             pathControlDiv.appendChild(statusLabel);
-            
+
             const calculateButton = document.createElement('button');
             calculateButton.textContent = 'Calculate Route';
             calculateButton.onclick = function() {
-                // This is the function that is currently logging to the console (good)
-                console.log("--- Pathfinding Debug on Calculate Click ---");
-                console.log(`Start Node (A): ${startNodeId}`);
-                console.log(`End Node (B): ${endNodeId}`);
-                console.log("------------------------------------------");
                 
-                if (startNodeId && endNodeId) {
+                // CRITICAL SCOPE FIX: Checking window.startNodeId and window.endNodeId
+                console.log("--- Pathfinding Debug on Calculate Click (Window Check) ---");
+                console.log(`Start Node (A): ${window.startNodeId}`);
+                console.log(`End Node (B): ${window.endNodeId}`);
+                console.log("---------------------------------------------------------");
+
+                if (window.startNodeId && window.endNodeId) {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else {
                     let missing = [];
-                    if (!startNodeId) missing.push('Start (A)');
-                    if (!endNodeId) missing.push('End (B)');
+                    if (!window.startNodeId) missing.push('Start (A)');
+                    if (!window.endNodeId) missing.push('End (B)');
                     
                     Toastify({
                         text: 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.',
@@ -470,7 +472,6 @@
 
             // 5. CONTEXT MENU SELECTION HANDLER
             function handleContextSelection(viewCoord, type) {
-                // This function MUST be running and logging if you right-click
                 console.log("--- Context Menu Click Handled ---");
                 
                 if (typeof findNearestNode !== 'function') {
@@ -485,7 +486,7 @@
                 let preciseBlockCoord = [blockCoord[0], blockCoord[1] * -1];
 
 
-                // *** DEBUG LOGGING (This is what needs to appear on right-click) ***
+                // *** DEBUG LOGGING ***
                 console.log("Clicked Type:", type);
                 console.log("Transformed Block Coordinate (x, z) for search:", preciseBlockCoord); 
                 console.log("Attempting to find nearest node from roadGraph...");
@@ -494,15 +495,15 @@
                 // findNearestNode runs the distance calculation against the roadGraph
                 const nearestNode = findNearestNode(preciseBlockCoord); 
                 
-                console.log("Result of findNearestNode:", nearestNode); // This line should show the node ID or null
+                console.log("Result of findNearestNode:", nearestNode); 
 
                 if (nearestNode) {
                     if (type === 'start') {
-                        startNodeId = nearestNode;
-                        document.getElementById('path-status').textContent = `START (A) set at ${nearestNode}. ${endNodeId ? "END (B) is also set. Click 'Calculate Route'." : "Right-click to set END (B)."}`;
-                        pathLineLayer.getSource().clear(); 
+                        window.startNodeId = nearestNode; // <--- CRITICAL SCOPE FIX
+                        document.getElementById('path-status').textContent = `START (A) set at ${nearestNode}. ${window.endNodeId ? "END (B) is also set. Click 'Calculate Route'." : "Right-click to set END (B)."}`;
+                        window.pathLineLayer.getSource().clear(); 
                     } else {
-                        if (!startNodeId) {
+                        if (!window.startNodeId) { // <--- CRITICAL SCOPE FIX
                             Toastify({
                                 text: "Please set the START (A) point first.",
                                 duration: 3000,
@@ -512,7 +513,7 @@
                             }).showToast();
                             return;
                         }
-                        endNodeId = nearestNode;
+                        window.endNodeId = nearestNode; // <--- CRITICAL SCOPE FIX
                         document.getElementById('path-status').textContent = `END (B) set at ${nearestNode}. Click 'Calculate Route'.`;
                     }
                     drawPathMarkers(olMap, dataProjection, viewProjection);
@@ -557,7 +558,24 @@
 
             
             // --- Single-Click Handler (Handles Popups) ---
-            // ... (omitted, assumed correct)
+            
+            const container = document.getElementById('popup');
+            const content = document.getElementById('popup-content');
+            const closer = document.getElementById('popup-closer');
+            
+            const overlay = new ol.Overlay({
+                element: container,
+                autoPan: true,
+                autoPanAnimation: { duration: 250 },
+            });
+            olMap.addOverlay(overlay);
+            
+            closer.onclick = function () {
+                overlay.setPosition(undefined);
+                closer.blur();
+                return false;
+            };
+            
             olMap.on('click', function (evt) {
 
                 let featureClicked = false;
