@@ -1,33 +1,48 @@
-
-MKB City Interactable Map
-
-Link to map: http://mkbandzz.github.io
+# MKB City Map 
+## _Complete with Roads, POIs, and Property information_
 
 
-Version 2.1 (12-13-2025)
+[![Build Status](https://travis-ci.org/joemccann/dillinger.svg?branch=master)](https://travis-ci.org/joemccann/dillinger)
 
--Added pathfinding (experimental, may not work on mobile)
+#### Link to map: http://mkbandzz.github.io
 
--Added color coding to roads
+MKB Map is powered by UnMiNeD, and uses GeoJSON files overlayed on top of the map.
 
+- See road names and type
+- See properties, its name and address
+- ✨Magic ✨
 
+## Features
 
-
-
-Version 2.0 (12-12-2025)
-
--Added road names and vectors
-
--Added points of interest and property names and attributes.
-
-Coming soon:
-
-Pathfinding
-
-Better UI
-
-Search Bar for Property Names
+- Road and Property vectors
+- Road attributes (Speed, Type, Level, Length)
+- Pathfinding between nodes 
+- Multiple Zoom Levels
 
 
+#### Upcoming Features
 
+- Search for roads, pois, addresses, etc
+- Polish UI
+
+Updates to the map layer are typically done every month
+
+
+
+
+_Version 2.1 (12-13-2025)_
+
+- Added pathfinding (experimental, may not work on mobile)
+
+- Added color coding to roads
+
+
+
+
+
+_Version 2.0 (12-12-2025)_
+
+ - Added road names and vectors
+
+ - Added points of interest and property names and attributes.
 
