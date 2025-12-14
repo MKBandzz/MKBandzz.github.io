@@ -144,13 +144,50 @@
     <script type="text/javascript">
         
         // =================================================================
-        // GLOBAL STATE FOR PATHFINDING (EXPLICITLY using 'window' for scope fix)
+        // GLOBAL STATE FOR PATHFINDING (Only for Layers, IDs are in URL)
         // =================================================================
-        window.startNodeId = null; 
-        window.endNodeId = null;
         window.pathMarkerLayer = null; 
         window.pathLineLayer = null;   
         window.roadLayerSource = null;
+
+        // =================================================================
+        // URL STATE HANDLERS - NOW WITH CONFLICT RESOLUTION
+        // =================================================================
+
+        // Utility to read the hash part of the URL and get ALL parameters
+        function getPathParams() {
+            const hash = window.location.hash.substring(1); // Remove '#'
+            const params = new URLSearchParams(hash);
+            
+            // Return all parameters, including the specific path ones
+            return {
+                allParams: params, // The full URLSearchParams object (contains zoom, x, y, etc.)
+                startId: params.get('start'),
+                endId: params.get('end')
+            };
+        }
+
+        // Utility to write the hash part of the URL (merges with existing parameters)
+        function updateUrlHash(newStartId, newEndId) {
+            const { allParams } = getPathParams();
+            
+            // Update or delete 'start'
+            if (newStartId) {
+                allParams.set('start', newStartId);
+            } else {
+                allParams.delete('start');
+            }
+            
+            // Update or delete 'end'
+            if (newEndId) {
+                allParams.set('end', newEndId);
+            } else {
+                allParams.delete('end');
+            }
+            
+            // Write the full, merged set of parameters back to the URL
+            window.location.hash = allParams.toString();
+        }
 
 
         // Utility function to convert a node ID string "x,z" to a coordinate array [x, z]
@@ -162,9 +199,10 @@
         function drawPathMarkers(olMap, dataProjection, viewProjection) {
             window.pathMarkerLayer.getSource().clear();
             
-            // NOTE: Use window.startNodeId and window.endNodeId
-            const startCoord = nodeIdToCoord(window.startNodeId);
-            const endCoord = nodeIdToCoord(window.endNodeId);
+            const { startId, endId } = getPathParams();
+
+            const startCoord = nodeIdToCoord(startId);
+            const endCoord = nodeIdToCoord(endId);
             
             // Start Marker (Green Circle)
             if (startCoord) {
@@ -215,8 +253,9 @@
 
         // Utility to reset the pathfinding state completely
         function resetPath() {
-            window.startNodeId = null;
-            window.endNodeId = null;
+            // Clear URL state (only 'start' and 'end' parameters will be removed)
+            updateUrlHash(null, null); 
+            
             if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
             if (window.pathLineLayer) window.pathLineLayer.getSource().clear();
             document.getElementById('path-status').textContent = 'Right-click map to set START (A).';
@@ -228,12 +267,15 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
+            const { startId, endId } = getPathParams();
+
             if (typeof calculatePath !== 'function') {
                  statusElement.textContent = "Error: Pathfinding script failed to load.";
                  return;
             }
 
-            const result = calculatePath(window.startNodeId, window.endNodeId);
+            // Use IDs directly from the URL
+            const result = calculatePath(startId, endId);
             
             if (result.path && result.path.length > 0) {
                 
@@ -261,6 +303,19 @@
                 statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${result.distance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
                  statusElement.textContent = result.message || 'Error: Could not find a route. Check console for details.';
+            }
+        }
+
+        // Updates the status text based on current URL parameters
+        function updateStatusText(startId, endId) {
+            const statusElement = document.getElementById('path-status');
+            
+            if (startId && endId) {
+                statusElement.textContent = `START (A) set at ${startId}. END (B) set at ${endId}. Click 'Calculate Route'.`;
+            } else if (startId) {
+                statusElement.textContent = `START (A) set at ${startId}. Right-click to set END (B).`;
+            } else {
+                statusElement.textContent = 'Right-click map to set START (A).';
             }
         }
 
@@ -431,25 +486,26 @@
             
             const statusLabel = document.createElement('p');
             statusLabel.id = 'path-status';
-            statusLabel.textContent = 'Right-click map to set START (A).';
+            // Initial status text will be set after checking URL hash
             pathControlDiv.appendChild(statusLabel);
 
             const calculateButton = document.createElement('button');
             calculateButton.textContent = 'Calculate Route';
             calculateButton.onclick = function() {
                 
-                // CRITICAL SCOPE FIX: Checking window.startNodeId and window.endNodeId
-                console.log("--- Pathfinding Debug on Calculate Click (Window Check) ---");
-                console.log(`Start Node (A): ${window.startNodeId}`);
-                console.log(`End Node (B): ${window.endNodeId}`);
+                const { startId, endId } = getPathParams();
+
+                console.log("--- Pathfinding Debug on Calculate Click (URL Check) ---");
+                console.log(`Start Node (A): ${startId}`);
+                console.log(`End Node (B): ${endId}`);
                 console.log("---------------------------------------------------------");
 
-                if (window.startNodeId && window.endNodeId) {
+                if (startId && endId) {
                     handleCalculatePath(olMap, dataProjection, viewProjection); 
                 } else {
                     let missing = [];
-                    if (!window.startNodeId) missing.push('Start (A)');
-                    if (!window.endNodeId) missing.push('End (B)');
+                    if (!startId) missing.push('Start (A)');
+                    if (!endId) missing.push('End (B)');
                     
                     Toastify({
                         text: 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.',
@@ -478,6 +534,9 @@
                     console.error("findNearestNode is not defined. pathfinding.js failed to load.");
                     return;
                 }
+                
+                // Get current state from URL (includes map center, zoom, etc.)
+                let { startId, endId } = getPathParams();
 
                 // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
@@ -498,12 +557,12 @@
                 console.log("Result of findNearestNode:", nearestNode); 
 
                 if (nearestNode) {
+                    // Update URL hash with the new coordinate
                     if (type === 'start') {
-                        window.startNodeId = nearestNode; // <--- CRITICAL SCOPE FIX
-                        document.getElementById('path-status').textContent = `START (A) set at ${nearestNode}. ${window.endNodeId ? "END (B) is also set. Click 'Calculate Route'." : "Right-click to set END (B)."}`;
-                        window.pathLineLayer.getSource().clear(); 
+                        startId = nearestNode;
+                        // endId remains as it was, preserving the map's view parameters
                     } else {
-                        if (!window.startNodeId) { // <--- CRITICAL SCOPE FIX
+                        if (!startId) {
                             Toastify({
                                 text: "Please set the START (A) point first.",
                                 duration: 3000,
@@ -513,10 +572,18 @@
                             }).showToast();
                             return;
                         }
-                        window.endNodeId = nearestNode; // <--- CRITICAL SCOPE FIX
-                        document.getElementById('path-status').textContent = `END (B) set at ${nearestNode}. Click 'Calculate Route'.`;
+                        // startId remains as it was
+                        endId = nearestNode;
                     }
+                    
+                    // Write new state to URL (this merges the start/end params with existing hash data)
+                    updateUrlHash(startId, endId); 
+                    
+                    // Update visuals and status
                     drawPathMarkers(olMap, dataProjection, viewProjection);
+                    updateStatusText(startId, endId);
+                    window.pathLineLayer.getSource().clear(); 
+                    
                 } else {
                     Toastify({
                         text: "No eligible road node found within 15 blocks. Click closer to a road.",
@@ -556,6 +623,19 @@
             });
             olMap.addControl(contextmenu);
 
+            
+            // 6. INITIALIZE STATE FROM URL HASH
+            const initialParams = getPathParams();
+            updateStatusText(initialParams.startId, initialParams.endId);
+            
+            // If the map loads with points in the URL, draw them immediately
+            if (initialParams.startId || initialParams.endId) {
+                drawPathMarkers(olMap, dataProjection, viewProjection);
+                // If both are present, calculate the path automatically
+                if (initialParams.startId && initialParams.endId) {
+                    handleCalculatePath(olMap, dataProjection, viewProjection);
+                }
+            }
             
             // --- Single-Click Handler (Handles Popups) ---
             
