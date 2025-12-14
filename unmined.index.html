@@ -23,7 +23,6 @@
 
     <script type="text/javascript" src="custom.markers.js"></script>
     <script type="text/javascript" src="pathfinding.js"></script>
-    <script src="lib/ol-contextmenu.iife.js"></script> 
     <script type="text/javascript" src="unmined.js"></script>
 
     <link rel="stylesheet" type="text/css" href="index.css">
@@ -237,7 +236,7 @@
             
             if (result.path && result.path.length > 0) {
                 
-                // 2. Transform coordinates for OpenLayers display (Block Coords to View Coords)
+                // 2. Transform coordinates for OpenLayers display (Block Coords [X, Z] to View Coords [X, -Y])
                 const transformedCoords = result.path.map(coord => 
                     ol.proj.transform(coord, dataProjection, viewProjection)
                 );
@@ -352,7 +351,7 @@
                                     // Clone the feature to prevent modifying the visual layer feature
                                     const clone = f.clone();
                                     // Transform the coordinates from ViewProjection (degrees) back to DataProjection (blocks)
-                                    // This gives us the Minecraft block coordinates [X, Z] with Z correctly negated.
+                                    // This transform effectively reverses the visual inversion, resulting in Minecraft [X, Z] coordinates.
                                     clone.getGeometry().transform(viewProjection, dataProjection); 
                                     return clone;
                                 });
@@ -554,8 +553,7 @@
                 // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
                 const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
                 
-                // 2. CRITICAL FIX: Ensure the Z-coordinate is negated to match the graph's node IDs (X, -Z).
-                // This final manual negation is often necessary to align OL's Y-up projection with Minecraft's Z-down.
+                // 2. CRITICAL FIX: Ensure the Z-coordinate is negated to align OL's Y-up projection with Minecraft's Z-down/Graph's Z-up
                 let preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1] * -1)];
 
 
@@ -566,7 +564,7 @@
                 console.log("Attempting to find nearest node...");
                 // *** DEBUG LOGGING END ***
 
-                // findNearestNode uses the globally available roadGraph
+                // findNearestNode uses the globally available roadGraph, comparing preciseBlockCoord [X, Z] with node [X, Z]
                 const nearestNode = findNearestNode(preciseBlockCoord); 
                 
                 // *** DEBUG LOGGING START ***
@@ -593,10 +591,11 @@
                         endNodeId = nearestNode;
                         document.getElementById('path-status').textContent = `END (B) set at ${nearestNode}. Click 'Calculate Route'.`;
                     }
+                    // This function calls ol.proj.transform to draw the marker, which is correct
                     drawPathMarkers(olMap, dataProjection, viewProjection);
                 } else {
                     Toastify({
-                        text: "No eligible road node found within 10 blocks. Click closer to a road.",
+                        text: "No eligible road node found within 15 blocks. Click closer to a road.",
                         duration: 4000,
                         gravity: "top",
                         position: "center",
