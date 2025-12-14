@@ -183,6 +183,7 @@
                     })
                 }));
                 pathMarkerLayer.getSource().addFeature(startFeature);
+                console.log("Marker A drawn at:", startCoord); 
             }
             
             // End Marker (Red Circle)
@@ -205,6 +206,7 @@
                     })
                 }));
                 pathMarkerLayer.getSource().addFeature(endFeature);
+                console.log("Marker B drawn at:", endCoord); 
             }
         }
 
@@ -223,12 +225,18 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
-            // The ERROR happens here, because calculateDistance isn't globally available
+            // Safety check for functions
+            if (typeof calculatePath !== 'function' || typeof calculateDistance !== 'function') {
+                 console.error("FATAL ERROR: calculatePath or calculateDistance function not found.");
+                 statusElement.textContent = "Error: Pathfinding script failed to load.";
+                 return;
+            }
+
             const result = calculatePath(startNodeId, endNodeId);
             
             if (result.path && result.path.length > 0) {
                 
-                // 2. Transform coordinates for OpenLayers display
+                // 2. Transform coordinates for OpenLayers display (Block Coords to View Coords)
                 const transformedCoords = result.path.map(coord => 
                     ol.proj.transform(coord, dataProjection, viewProjection)
                 );
@@ -249,20 +257,7 @@
                 // 5. Add to the Path Line Layer
                 pathLineLayer.getSource().addFeature(pathFeature);
                 
-                // 6. Calculate total distance in blocks
-                let totalDistance = 0;
-                for(let i = 0; i < result.path.length - 1; i++) {
-                    // This is where calculateDistance should be defined.
-                    if (typeof calculateDistance === 'function') {
-                        totalDistance += calculateDistance(result.path[i], result.path[i+1]);
-                    } else {
-                         console.error("CRITICAL: calculateDistance is not defined during path calculation.");
-                         totalDistance = 0;
-                         break;
-                    }
-                }
-
-                statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${totalDistance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
+                statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${result.distance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
             } else {
                  statusElement.textContent = result.message || 'Error: Could not find a route. Check console for details.';
                  console.error("Pathfinding failed. Check pathfinding.js implementations.");
@@ -314,7 +309,7 @@
                     .then(response => response.json())
                     .then(data => {
                         
-                        // **CRITICAL FIX: INVERT Y/Z COORDINATE**
+                        // **CRITICAL FIX: INVERT Y/Z COORDINATE (FOR VISUAL DISPLAY)**
                         function invertCoordinates(coords) {
                             if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
                                 return coords.map(part => invertCoordinates(part));
@@ -347,16 +342,26 @@
                         
                         if (url === 'roads.geojson') {
                             roadLayerSource = vectorSource; 
-                            // Check function availability before calling
+                            
                             if (typeof buildRoadGraph === 'function') {
-                                buildRoadGraph(features); 
+                                
+                                // *** CRITICAL FIX: Reproject features back to Block Coordinates (dataProjection) for Graph Building ***
+                                const blockFeatures = features.map(f => {
+                                    // Clone the feature to preserve the visual layer feature
+                                    const clone = f.clone();
+                                    // Transform the coordinates from ViewProjection (degrees) back to DataProjection (blocks)
+                                    clone.getGeometry().transform(viewProjection, dataProjection); 
+                                    return clone;
+                                });
+
+                                buildRoadGraph(blockFeatures); 
+                                console.log("SUCCESS: Road graph building initiated with", features.length, "features."); 
                             } else {
                                 console.error("ERROR: buildRoadGraph is not defined. Pathfinding graph not built.");
                             }
                         }
                     })
                     .catch(error => {
-                        // **CRITICAL DEBUGGING ADDITION**
                         console.error(`ERROR: Failed to load or process GeoJSON from ${url}.`, error);
                         Toastify({
                             text: `CRITICAL ERROR: Failed to load/parse ${url}. Check console.`,
@@ -531,7 +536,6 @@
 
             // === CONTEXT MENU SELECTION HANDLER ===
             function handleContextSelection(viewCoord, type) {
-                // Ensure findNearestNode is available before proceeding
                 if (typeof findNearestNode !== 'function') {
                     Toastify({
                         text: "ERROR: Pathfinding setup failed. Check pathfinding.js in console.",
@@ -548,16 +552,26 @@
                 // Rounding is crucial for matching node IDs stored as integers
                 const preciseBlockCoord = [Math.round(blockCoord[0]), Math.round(blockCoord[1])];
 
-                const nearestNode = findNearestNode(preciseBlockCoord, roadLayerSource, dataProjection, viewProjection);
+                // *** DEBUG LOGGING START ***
+                console.log("--- Context Menu Click Debug ---");
+                console.log("Clicked Type:", type);
+                console.log("Transformed Block Coordinate (x, z):", preciseBlockCoord);
+                console.log("Attempting to find nearest node...");
+                // *** DEBUG LOGGING END ***
+
+                // findNearestNode uses the globally available roadGraph
+                const nearestNode = findNearestNode(preciseBlockCoord); // No need to pass roadLayerSource, it uses the global graph
+                
+                // *** DEBUG LOGGING START ***
+                console.log("Result of findNearestNode:", nearestNode);
+                // *** DEBUG LOGGING END ***
 
                 if (nearestNode) {
                     if (type === 'start') {
                         startNodeId = nearestNode;
-                        // Keep endNodeId if it's already set, but clear path line
                         document.getElementById('path-status').textContent = `START (A) set at ${nearestNode}. ${endNodeId ? "END (B) is also set. Click 'Calculate Route'." : "Right-click to set END (B)."}`;
                         pathLineLayer.getSource().clear(); 
                     } else {
-                        // Only set end if start is also set, otherwise force setting start first
                         if (!startNodeId) {
                             Toastify({
                                 text: "Please set the START (A) point first.",
@@ -575,8 +589,8 @@
                     drawPathMarkers(olMap, dataProjection, viewProjection);
                 } else {
                     Toastify({
-                        text: "No eligible road node found within 10 blocks.",
-                        duration: 3000,
+                        text: "No eligible road node found within 10 blocks. Click closer to a road.",
+                        duration: 4000,
                         gravity: "top",
                         position: "center",
                         style: { background: "red" }
@@ -585,7 +599,6 @@
             }
             
             // === Context Menu Setup ===
-            // This relies on ol-contextmenu.iife.js loading correctly above.
             const contextmenu_items = [
                 {
                     text: 'Set as Path Start (A)',
