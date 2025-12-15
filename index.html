@@ -144,69 +144,74 @@
     <script type="text/javascript">
         
         // =================================================================
-        // GLOBAL STATE FOR PATHFINDING (CRITICAL: Used if URL hash fails)
+        // GLOBAL STATE FOR PATHFINDING (CRITICAL: Primary source of truth)
         // =================================================================
         window.pathMarkerLayer = null; 
         window.pathLineLayer = null;   
         window.roadLayerSource = null;
         
-        // NEW GLOBAL STATE OBJECT for reliable read/write
+        // GLOBAL STATE OBJECT
         window.pathState = {
             startId: null,
             endId: null
         };
 
         // =================================================================
-        // URL STATE HANDLERS (CRITICAL FOR SAVING/READING POINTS)
+        // STATE HANDLERS (USING QUERY PARAMS AND LOCAL STATE)
         // =================================================================
 
-        // Utility to read the hash part of the URL and get ALL parameters
+        /**
+         * Utility to read pathfinding parameters. Prioritizes local state, 
+         * then falls back to URL query parameters for initial load.
+         */
         function getPathParams() {
             // Priority 1: Read from the local, guaranteed-to-be-up-to-date object
             const localStartId = window.pathState.startId;
             const localEndId = window.pathState.endId;
             
-            // Priority 2: Read from the URL hash (needed for initial load/manual changes)
-            const hash = window.location.hash.substring(1); // Remove '#'
-            const params = new URLSearchParams(hash);
+            // Priority 2: Read from the URL query string (for initial load/link sharing)
+            const params = new URLSearchParams(window.location.search);
             
             return {
-                allParams: params, 
-                // Return local state if available, otherwise fallback to URL (for initial load)
+                // Return local state if available, otherwise fallback to URL query params
                 startId: localStartId || params.get('start'), 
                 endId: localEndId || params.get('end')
             };
         }
 
         /**
-         * Utility to write the hash part of the URL (merges with existing parameters).
-         * This also updates the local state object.
+         * Utility to write pathfinding state to the local object and the URL query string 
+         * using history.replaceState() to bypass uNmINeD's hash management.
          */
-        function updateUrlHash(newStartId, newEndId) {
+        function updateUrlState(newStartId, newEndId) {
             // CRITICAL: Update the local state first
             window.pathState.startId = newStartId;
             window.pathState.endId = newEndId;
 
-            // 1. Re-read all existing parameters to ensure we don't lose map state
-            const hash = window.location.hash.substring(1); 
-            const allParams = new URLSearchParams(hash);
-            
+            // 1. Read existing search parameters (if any)
+            const searchParams = new URLSearchParams(window.location.search);
+
             // 2. Update or delete 'start'
             if (newStartId) {
-                allParams.set('start', newStartId);
+                searchParams.set('start', newStartId);
             } else {
-                allParams.delete('start');
+                searchParams.delete('start');
             }
             
             // 3. Update or delete 'end'
             if (newEndId) {
-                allParams.set('end', newEndId);
+                searchParams.set('end', newEndId);
             } else {
-                allParams.delete('end');
+                searchParams.delete('end');
             }
             
-            // 4. Write the full, merged set of parameters back to the URL
-            window.location.hash = allParams.toString();
+            // 4. Construct the new URL path, keeping the hash for uNmINeD
+            const newPath = window.location.pathname + '?' + searchParams.toString() + window.location.hash;
+
+            // 5. Use history.replaceState to update the URL silently
+            history.replaceState(null, '', newPath);
+            
+            console.log(`Local State Updated (Start: ${window.pathState.startId}, End: ${window.pathState.endId}). URL updated using history.replaceState.`);
         }
 
 
@@ -275,7 +280,7 @@
         // Utility to reset the pathfinding state completely
         function resetPath() {
             // Clear URL and local state
-            updateUrlHash(null, null); 
+            updateUrlState(null, null); 
             
             if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
             if (window.pathLineLayer) window.pathLineLayer.getSource().clear();
@@ -527,7 +532,7 @@
             
             const statusLabel = document.createElement('p');
             statusLabel.id = 'path-status';
-            // Initial status text will be set after checking URL hash
+            // Initial status text will be set after checking URL state
             pathControlDiv.appendChild(statusLabel);
 
             const calculateButton = document.createElement('button');
@@ -623,8 +628,8 @@
                         endId = nearestNode;
                     }
                     
-                    // 2. CRITICAL: Write new state to URL and local state object
-                    updateUrlHash(startId, endId); 
+                    // 2. CRITICAL: Write new state to URL query string and local state object
+                    updateUrlState(startId, endId); 
                     
                     // 3. Update visuals and status using the now-updated local state
                     const { startId: confirmedStartId, endId: confirmedEndId } = getPathParams();
@@ -673,7 +678,7 @@
             olMap.addControl(contextmenu);
 
             
-            // 6. INITIALIZE STATE FROM URL HASH (Only runs once on load)
+            // 6. INITIALIZE STATE FROM URL QUERY PARAMS
             const initialParams = getPathParams();
             // Important: Synchronize local state from URL hash for initial load
             window.pathState.startId = initialParams.startId;
