@@ -144,11 +144,17 @@
     <script type="text/javascript">
         
         // =================================================================
-        // GLOBAL STATE FOR PATHFINDING (Only for Layers, IDs are in URL)
+        // GLOBAL STATE FOR PATHFINDING (CRITICAL: Used if URL hash fails)
         // =================================================================
         window.pathMarkerLayer = null; 
         window.pathLineLayer = null;   
         window.roadLayerSource = null;
+        
+        // NEW GLOBAL STATE OBJECT for reliable read/write
+        window.pathState = {
+            startId: null,
+            endId: null
+        };
 
         // =================================================================
         // URL STATE HANDLERS (CRITICAL FOR SAVING/READING POINTS)
@@ -156,40 +162,50 @@
 
         // Utility to read the hash part of the URL and get ALL parameters
         function getPathParams() {
+            // Priority 1: Read from the local, guaranteed-to-be-up-to-date object
+            const localStartId = window.pathState.startId;
+            const localEndId = window.pathState.endId;
+            
+            // Priority 2: Read from the URL hash (needed for initial load/manual changes)
             const hash = window.location.hash.substring(1); // Remove '#'
             const params = new URLSearchParams(hash);
             
             return {
                 allParams: params, 
-                startId: params.get('start'),
-                endId: params.get('end')
+                // Return local state if available, otherwise fallback to URL (for initial load)
+                startId: localStartId || params.get('start'), 
+                endId: localEndId || params.get('end')
             };
         }
 
         /**
          * Utility to write the hash part of the URL (merges with existing parameters).
-         * This ensures the map's zoom/pan state (x, y, zoom) is preserved.
+         * This also updates the local state object.
          */
         function updateUrlHash(newStartId, newEndId) {
-            // Re-read all existing parameters to ensure we don't lose the map's zoom/pan state
+            // CRITICAL: Update the local state first
+            window.pathState.startId = newStartId;
+            window.pathState.endId = newEndId;
+
+            // 1. Re-read all existing parameters to ensure we don't lose map state
             const hash = window.location.hash.substring(1); 
             const allParams = new URLSearchParams(hash);
             
-            // Update or delete 'start'
+            // 2. Update or delete 'start'
             if (newStartId) {
                 allParams.set('start', newStartId);
             } else {
                 allParams.delete('start');
             }
             
-            // Update or delete 'end'
+            // 3. Update or delete 'end'
             if (newEndId) {
                 allParams.set('end', newEndId);
             } else {
                 allParams.delete('end');
             }
             
-            // Write the full, merged set of parameters back to the URL
+            // 4. Write the full, merged set of parameters back to the URL
             window.location.hash = allParams.toString();
         }
 
@@ -203,6 +219,7 @@
         function drawPathMarkers(olMap, dataProjection, viewProjection) {
             window.pathMarkerLayer.getSource().clear();
             
+            // Now reads from the robust getPathParams (which prioritizes local state)
             const { startId, endId } = getPathParams();
 
             const startCoord = nodeIdToCoord(startId);
@@ -257,7 +274,7 @@
 
         // Utility to reset the pathfinding state completely
         function resetPath() {
-            // Clear URL state (only 'start' and 'end' parameters will be removed)
+            // Clear URL and local state
             updateUrlHash(null, null); 
             
             if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
@@ -271,7 +288,7 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
-            // Read state directly from URL
+            // Read state from the robust getPathParams (prioritizes local state)
             const { startId, endId } = getPathParams();
 
             if (typeof calculatePath !== 'function') {
@@ -279,17 +296,16 @@
                  return;
             }
 
-            console.log("--- Pathfinding Debug on Calculate Click (FINAL URL Check) ---");
-            console.log(`Start Node (A): ${startId}`); // Should now show the coordinates!
-            console.log(`End Node (B): ${endId}`);     // Should now show the coordinates!
+            console.log("--- Pathfinding Debug on Calculate Click (FINAL STATE Check) ---");
+            console.log(`Start Node (A): ${startId}`); 
+            console.log(`End Node (B): ${endId}`);     
             console.log("---------------------------------------------------------");
 
 
-            // Check again in case of race condition or hash clearing
             if (!startId || !endId) {
                 statusElement.textContent = 'Error: Missing start or end point. Resetting...';
                 Toastify({
-                    text: 'Error: Path coordinates not found in URL. Please set points again.',
+                    text: 'Error: Path coordinates not found. Please set points again.',
                     duration: 5000,
                     gravity: "top",
                     position: "center",
@@ -299,7 +315,7 @@
                 return;
             }
 
-            // Use IDs directly from the URL
+            // Use IDs directly
             const result = calculatePath(startId, endId);
             
             if (result.path && result.path.length > 0) {
@@ -331,7 +347,7 @@
             }
         }
 
-        // Updates the status text based on current URL parameters
+        // Updates the status text based on current robust state
         function updateStatusText(startId, endId) {
             const statusElement = document.getElementById('path-status');
             
@@ -518,7 +534,7 @@
             calculateButton.textContent = 'Calculate Route';
             calculateButton.onclick = function() {
                 
-                // Reads state directly from URL
+                // Reads state from the robust getPathParams (prioritizes local state)
                 const { startId, endId } = getPathParams();
 
                 if (startId && endId) {
@@ -556,11 +572,10 @@
                     return;
                 }
                 
-                // Get current state from URL
+                // Get current state from local state/URL
                 let { startId, endId } = getPathParams();
 
                 // *** ROBUST COORDINATE CALCULATION (GeoJSON-only method) ***
-                
                 const view = olMap.getView();
                 const centerCoord = view.getCenter();
                 const resolution = view.getResolution();
@@ -608,22 +623,15 @@
                         endId = nearestNode;
                     }
                     
-                    // 2. CRITICAL: Write new state to URL
+                    // 2. CRITICAL: Write new state to URL and local state object
                     updateUrlHash(startId, endId); 
                     
-                    // *** ADDED DEBUG AND REDRAW CALL ***
-                    const newHash = window.location.hash;
-                    console.log(`URL Hash AFTER updateUrlHash: ${newHash}`);
-
-                    // 3. Update visuals and status
-                    // We must read the state back from the URL to be 100% sure the next function call 
-                    // (which uses getPathParams) is consistent with the state we just set.
+                    // 3. Update visuals and status using the now-updated local state
                     const { startId: confirmedStartId, endId: confirmedEndId } = getPathParams();
 
                     drawPathMarkers(olMap, dataProjection, viewProjection);
                     updateStatusText(confirmedStartId, confirmedEndId);
                     window.pathLineLayer.getSource().clear(); 
-                    // **********************************
                     
                 } else {
                     Toastify({
@@ -665,8 +673,12 @@
             olMap.addControl(contextmenu);
 
             
-            // 6. INITIALIZE STATE FROM URL HASH
+            // 6. INITIALIZE STATE FROM URL HASH (Only runs once on load)
             const initialParams = getPathParams();
+            // Important: Synchronize local state from URL hash for initial load
+            window.pathState.startId = initialParams.startId;
+            window.pathState.endId = initialParams.endId;
+            
             updateStatusText(initialParams.startId, initialParams.endId);
             
             // If the map loads with points in the URL, draw them immediately
