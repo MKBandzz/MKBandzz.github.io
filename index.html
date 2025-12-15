@@ -22,7 +22,6 @@
     <script type="text/javascript" src="unmined.map.players.js"></script>
 
     <script type="text/javascript" src="custom.markers.js"></script>
-    <script type="text/javascript" src="pathfinding.js"></script>
     <script type="text/javascript" src="unmined.js"></script>
 
     <link rel="stylesheet" type="text/css" href="index.css">
@@ -104,31 +103,7 @@
             margin-top: 3px;
         }
         
-        /* Pathfinding UI */
-        .ol-control.path-control {
-            top: 6.5em; /* Positioned below layer toggle */
-            right: .5em;
-            background-color: rgba(255, 255, 255, 0.9);
-            padding: 5px 10px;
-            border-radius: 4px;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-            z-index: 2000;
-            font-size: 14px;
-            width: 180px;
-        }
-        .path-control button {
-            display: block;
-            width: 100%;
-            margin-top: 5px;
-            padding: 5px;
-            cursor: pointer;
-        }
-        #path-status {
-            font-weight: bold;
-            margin-top: 5px;
-            margin-bottom: 5px;
-            min-height: 3em; /* Ensure space for multi-line status */
-        }
+        /* Removed pathfinding UI styles (.path-control) */
     </style>
 
 </head>
@@ -144,227 +119,9 @@
     <script type="text/javascript">
         
         // =================================================================
-        // GLOBAL STATE FOR PATHFINDING (CRITICAL: Primary source of truth)
+        // GLOBAL STATE (Only core map layers remain)
         // =================================================================
-        window.pathMarkerLayer = null; 
-        window.pathLineLayer = null;   
         window.roadLayerSource = null;
-        
-        // GLOBAL STATE OBJECT
-        window.pathState = {
-            startId: null,
-            endId: null
-        };
-
-        // =================================================================
-        // STATE HANDLERS (USING QUERY PARAMS AND LOCAL STATE)
-        // =================================================================
-
-        /**
-         * Utility to read pathfinding parameters. Prioritizes local state, 
-         * then falls back to URL query parameters for initial load.
-         */
-        function getPathParams() {
-            // Priority 1: Read from the local, guaranteed-to-be-up-to-date object
-            const localStartId = window.pathState.startId;
-            const localEndId = window.pathState.endId;
-            
-            // Priority 2: Read from the URL query string (for initial load/link sharing)
-            const params = new URLSearchParams(window.location.search);
-            
-            return {
-                // Return local state if available, otherwise fallback to URL query params
-                startId: localStartId || params.get('start'), 
-                endId: localEndId || params.get('end')
-            };
-        }
-
-        /**
-         * Utility to write pathfinding state to the local object and the URL query string 
-         * using history.replaceState() to bypass uNmINeD's hash management.
-         */
-        function updateUrlState(newStartId, newEndId) {
-            // CRITICAL: Update the local state first
-            window.pathState.startId = newStartId;
-            window.pathState.endId = newEndId;
-
-            // 1. Read existing search parameters (if any)
-            const searchParams = new URLSearchParams(window.location.search);
-
-            // 2. Update or delete 'start'
-            if (newStartId) {
-                searchParams.set('start', newStartId);
-            } else {
-                searchParams.delete('start');
-            }
-            
-            // 3. Update or delete 'end'
-            if (newEndId) {
-                searchParams.set('end', newEndId);
-            } else {
-                searchParams.delete('end');
-            }
-            
-            // 4. Construct the new URL path, keeping the hash for uNmINeD
-            const newPath = window.location.pathname + '?' + searchParams.toString() + window.location.hash;
-
-            // 5. Use history.replaceState to update the URL silently
-            history.replaceState(null, '', newPath);
-            
-            console.log(`Local State Updated (Start: ${window.pathState.startId}, End: ${window.pathState.endId}). URL updated using history.replaceState.`);
-        }
-
-
-        // Utility function to convert a node ID string "x,z" to a coordinate array [x, z]
-        function nodeIdToCoord(nodeId) {
-            return nodeId ? nodeId.split(',').map(Number) : null;
-        }
-        
-        // Utility to draw the start and end markers
-        function drawPathMarkers(olMap, dataProjection, viewProjection) {
-            window.pathMarkerLayer.getSource().clear();
-            
-            // Now reads from the robust getPathParams (which prioritizes local state)
-            const { startId, endId } = getPathParams();
-
-            const startCoord = nodeIdToCoord(startId);
-            const endCoord = nodeIdToCoord(endId);
-            
-            // Start Marker (Green Circle)
-            if (startCoord) {
-                // Transform [X, Z] to OpenLayers view projection [X, -Y] for display
-                const startFeature = new ol.Feature({
-                    geometry: new ol.geom.Point(ol.proj.transform(startCoord, dataProjection, viewProjection))
-                });
-                startFeature.setStyle(new ol.style.Style({
-                    image: new ol.style.Circle({
-                        radius: 10,
-                        fill: new ol.style.Fill({ color: 'rgba(76, 175, 80, 0.8)' }), // Green
-                        stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 })
-                    }),
-                    text: new ol.style.Text({
-                        text: 'A (Start)',
-                        font: 'bold 12px sans-serif',
-                        offsetY: 20,
-                        fill: new ol.style.Fill({ color: 'green' }),
-                        stroke: new ol.style.Stroke({ color: 'white', width: 2 })
-                    })
-                }));
-                window.pathMarkerLayer.getSource().addFeature(startFeature);
-            }
-            
-            // End Marker (Red Circle)
-            if (endCoord) {
-                // Transform [X, Z] to OpenLayers view projection [X, -Y] for display
-                const endFeature = new ol.Feature({
-                    geometry: new ol.geom.Point(ol.proj.transform(endCoord, dataProjection, viewProjection))
-                });
-                endFeature.setStyle(new ol.style.Style({
-                    image: new ol.style.Circle({
-                        radius: 10,
-                        fill: new ol.style.Fill({ color: 'rgba(244, 67, 54, 0.8)' }), // Red
-                        stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 })
-                    }),
-                    text: new ol.style.Text({
-                        text: 'B (End)',
-                        font: 'bold 12px sans-serif',
-                        offsetY: 20,
-                        fill: new ol.style.Fill({ color: 'red' }),
-                        stroke: new ol.style.Stroke({ color: 'white', width: 2 })
-                    })
-                }));
-                window.pathMarkerLayer.getSource().addFeature(endFeature);
-            }
-        }
-
-        // Utility to reset the pathfinding state completely
-        function resetPath() {
-            // Clear URL and local state
-            updateUrlState(null, null); 
-            
-            if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
-            if (window.pathLineLayer) window.pathLineLayer.getSource().clear();
-            document.getElementById('path-status').textContent = 'Right-click map to set START (A).';
-        }
-        
-        // --- Function to execute pathfinding and draw the route ---
-        function handleCalculatePath(olMap, dataProjection, viewProjection) {
-            window.pathLineLayer.getSource().clear();
-            const statusElement = document.getElementById('path-status');
-            statusElement.textContent = 'Calculating...';
-            
-            // Read state from the robust getPathParams (prioritizes local state)
-            const { startId, endId } = getPathParams();
-
-            if (typeof calculatePath !== 'function') {
-                 statusElement.textContent = "Error: Pathfinding script failed to load.";
-                 return;
-            }
-
-            console.log("--- Pathfinding Debug on Calculate Click (FINAL STATE Check) ---");
-            console.log(`Start Node (A): ${startId}`); 
-            console.log(`End Node (B): ${endId}`);     
-            console.log("---------------------------------------------------------");
-
-
-            if (!startId || !endId) {
-                statusElement.textContent = 'Error: Missing start or end point. Resetting...';
-                Toastify({
-                    text: 'Error: Path coordinates not found. Please set points again.',
-                    duration: 5000,
-                    gravity: "top",
-                    position: "center",
-                    style: { background: "red" }
-                }).showToast();
-                resetPath();
-                return;
-            }
-
-            // Use IDs directly
-            const result = calculatePath(startId, endId);
-            
-            if (result.path && result.path.length > 0) {
-                
-                // 2. Transform coordinates for OpenLayers display (Block Coords [X, Z] to View Coords [X, -Y])
-                const transformedCoords = result.path.map(coord => 
-                    ol.proj.transform(coord, dataProjection, viewProjection)
-                );
-                
-                // 3. Create the LineString feature
-                const pathFeature = new ol.Feature({
-                    geometry: new ol.geom.LineString(transformedCoords)
-                });
-                
-                // 4. Style the path (Blue line)
-                pathFeature.setStyle(new ol.style.Style({
-                    stroke: new ol.style.Stroke({
-                        color: 'blue',
-                        width: 8
-                    })
-                }));
-                
-                // 5. Add to the Path Line Layer
-                window.pathLineLayer.getSource().addFeature(pathFeature);
-                
-                statusElement.innerHTML = `✅ Route found! <br> <b>Distance: ${result.distance.toFixed(0)} blocks</b>. <br> Time Cost: ${result.totalCost.toFixed(2)} units.`;
-            } else {
-                 statusElement.textContent = result.message || 'Error: Could not find a route. Check console for details.';
-            }
-        }
-
-        // Updates the status text based on current robust state
-        function updateStatusText(startId, endId) {
-            const statusElement = document.getElementById('path-status');
-            
-            if (startId && endId) {
-                statusElement.textContent = `START (A) set at ${startId}. END (B) set at ${endId}. Click 'Calculate Route'.`;
-            } else if (startId) {
-                statusElement.textContent = `START (A) set at ${startId}. Right-click to set END (B).`;
-            } else {
-                statusElement.textContent = 'Right-click map to set START (A).';
-            }
-        }
-
 
         window.onload = function() {
 
@@ -385,20 +142,12 @@
             const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
             
             // 2. Accessing Map and Projections
-
             const olMap = unmined.olMap || unmined.openlayersMap;
-            const dataProjection = unmined.dataProjection; // Minecraft [X, Z] space (used for graph data)
-            const viewProjection = unmined.viewProjection; // OpenLayers [X, -Y] space (used for display)
+            const dataProjection = unmined.dataProjection; // Minecraft [X, Z] space
+            const viewProjection = unmined.viewProjection; // OpenLayers [X, -Y] space
 
             if (!olMap || !dataProjection || !viewProjection) { console.error("CRITICAL FAILURE: Map or projection objects are missing."); return; }
             
-            // Initialize path layers
-            window.pathMarkerLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Path Markers', zIndex: 3000 });
-            olMap.addLayer(window.pathMarkerLayer);
-            window.pathLineLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Calculated Path', zIndex: 2500 });
-            olMap.addLayer(window.pathLineLayer);
-
-
             // 3. VECTOR LAYER SETUP UTILITY WITH COORDINATE NEGATION FIX
             
             function createVectorLayer(url, dataProjection, viewProjection, style) {
@@ -422,23 +171,7 @@
                             return coords;
                         }
                         
-                        // --- GRAPH BUILDING LOGIC (Using RAW Block Coords) ---
-                        if (url === 'roads.geojson' && typeof buildRoadGraph === 'function') {
-                            const format = new ol.format.GeoJSON();
-                            
-                            // 1. Read features using the raw dataProjection, not projecting to the view yet.
-                            // These features contain the correct [X, Z] blocks.
-                            const rawBlockFeatures = format.readFeatures(data, {
-                                dataProjection: dataProjection, 
-                                featureProjection: dataProjection 
-                            });
-                            
-                            // 2. Pass these raw block features directly to the graph builder.
-                            buildRoadGraph(rawBlockFeatures);
-                            console.log("SUCCESS: Road graph built from raw block coordinates."); 
-                        }
-                        // --- END GRAPH BUILDING LOGIC ---
-
+                        // --- GRAPH BUILDING LOGIC REMOVED ---
 
                         // --- VISUALIZATION LOGIC (Applying Inversion and Projection) ---
                         // 1. Apply the manual Z-inversion to the GeoJSON data object (for OL to see the map correctly)
@@ -472,7 +205,7 @@
                 });
             }
 
-            // 3A. Roads Layer Definition (uses the fixed createVectorLayer)
+            // 3A. Roads Layer Definition
             function getRoadStyle(feature) {
                 const roadType = feature.get('Type');
                 let color = '#FFFFFF'; let width = 2; 
@@ -526,174 +259,20 @@
             olMap.addLayer(poiLayer);
             
             
-            // 4. PATHFINDING UI AND CONTROLS
-            const pathControlDiv = document.createElement('div');
-            pathControlDiv.className = 'ol-control ol-unselectable path-control';
-            
-            const statusLabel = document.createElement('p');
-            statusLabel.id = 'path-status';
-            // Initial status text will be set after checking URL state
-            pathControlDiv.appendChild(statusLabel);
-
-            const calculateButton = document.createElement('button');
-            calculateButton.textContent = 'Calculate Route';
-            calculateButton.onclick = function() {
-                
-                // Reads state from the robust getPathParams (prioritizes local state)
-                const { startId, endId } = getPathParams();
-
-                if (startId && endId) {
-                    handleCalculatePath(olMap, dataProjection, viewProjection); 
-                } else {
-                    let missing = [];
-                    if (!startId) missing.push('Start (A)');
-                    if (!endId) missing.push('End (B)');
-                    
-                    Toastify({
-                        text: 'Please set the ' + missing.join(' and ') + ' point(s) by right-clicking the map.',
-                        duration: 5000,
-                        gravity: "top",
-                        position: "center",
-                        style: { background: "red" }
-                    }).showToast();
-                }
-            };
-            pathControlDiv.appendChild(calculateButton);
-            
-            const resetButton = document.createElement('button');
-            resetButton.textContent = 'Reset';
-            resetButton.onclick = resetPath;
-            pathControlDiv.appendChild(resetButton);
-            
-            olMap.addControl(new ol.control.Control({ element: pathControlDiv }));
+            // 4. Removed Pathfinding UI and Controls
 
 
-            // 5. CONTEXT MENU SELECTION HANDLER (WITH ROBUST COORDINATE CALCULATION)
-            function handleContextSelection(viewCoord, type) {
-                console.log("--- Context Menu Click Handled ---");
-                
-                if (typeof findNearestNode !== 'function') {
-                    console.error("findNearestNode is not defined. pathfinding.js failed to load.");
-                    return;
-                }
-                
-                // Get current state from local state/URL
-                let { startId, endId } = getPathParams();
-
-                // *** ROBUST COORDINATE CALCULATION (GeoJSON-only method) ***
-                const view = olMap.getView();
-                const centerCoord = view.getCenter();
-                const resolution = view.getResolution();
-                
-                const deltaX_proj = viewCoord[0] - centerCoord[0];
-                const deltaY_proj = viewCoord[1] - centerCoord[1];
-                
-                const deltaX_blocks = deltaX_proj / resolution;
-                const deltaZ_blocks = deltaY_proj / resolution; 
-                
-                // Transform center point to the data projection [X, Z]
-                const centerBlockCoord = ol.proj.transform(centerCoord, viewProjection, dataProjection);
-                
-                // Calculate the final click coordinate, applying the Z-negation and rounding
-                let preciseBlockCoord = [
-                    Math.round(centerBlockCoord[0] + deltaX_blocks),
-                    Math.round(centerBlockCoord[1] - deltaZ_blocks) 
-                ];
-
-
-                // *** DEBUG LOGGING ***
-                console.log("Clicked Type:", type);
-                console.log("Calculated Block Coordinate (x, z) for search:", preciseBlockCoord); 
-                
-                // findNearestNode runs the distance calculation against the roadGraph
-                const nearestNode = findNearestNode(preciseBlockCoord); 
-                
-                console.log("Result of findNearestNode:", nearestNode); 
-
-                if (nearestNode) {
-                    // 1. Update local startId/endId variables
-                    if (type === 'start') {
-                        startId = nearestNode;
-                    } else {
-                        if (!startId) {
-                            Toastify({
-                                text: "Please set the START (A) point first.",
-                                duration: 3000,
-                                gravity: "top",
-                                position: "center",
-                                style: { background: "orange" }
-                            }).showToast();
-                            return;
-                        }
-                        endId = nearestNode;
-                    }
-                    
-                    // 2. CRITICAL: Write new state to URL query string and local state object
-                    updateUrlState(startId, endId); 
-                    
-                    // 3. Update visuals and status using the now-updated local state
-                    const { startId: confirmedStartId, endId: confirmedEndId } = getPathParams();
-
-                    drawPathMarkers(olMap, dataProjection, viewProjection);
-                    updateStatusText(confirmedStartId, confirmedEndId);
-                    window.pathLineLayer.getSource().clear(); 
-                    
-                } else {
-                    Toastify({
-                        text: "No eligible road node found within 30 blocks. Click closer to a road.",
-                        duration: 4000,
-                        gravity: "top",
-                        position: "center",
-                        style: { background: "red" }
-                    }).showToast();
-                }
-            }
-            
-            // === Context Menu Setup ===
-            const contextmenu_items = [
-                {
-                    text: 'Set as Path Start (A)',
-                    classname: 'bold path-start-item',
-                    icon: 'https://cdn-icons-png.flaticon.com/16/242/242661.png', 
-                    callback: function(obj) {
-                        handleContextSelection(obj.coordinate, 'start');
-                    }
-                },
-                {
-                    text: 'Set as Path End (B)',
-                    classname: 'bold path-end-item',
-                    icon: 'https://cdn-icons-png.flaticon.com/16/242/242662.png', 
-                    callback: function(obj) {
-                        handleContextSelection(obj.coordinate, 'end');
-                    }
-                },
-                '-' // Separator 
-            ];
-            
+            // 5. Context Menu Setup (Reverting to OL Defaults)
             const contextmenu = new ol.control.ContextMenu({
                 width: 180,
                 defaultItems: true, 
-                items: contextmenu_items
+                items: [] // No custom items
             });
             olMap.addControl(contextmenu);
 
             
-            // 6. INITIALIZE STATE FROM URL QUERY PARAMS
-            const initialParams = getPathParams();
-            // Important: Synchronize local state from URL hash for initial load
-            window.pathState.startId = initialParams.startId;
-            window.pathState.endId = initialParams.endId;
+            // 6. Removed Initial Pathfinding State Initialization
             
-            updateStatusText(initialParams.startId, initialParams.endId);
-            
-            // If the map loads with points in the URL, draw them immediately
-            if (initialParams.startId || initialParams.endId) {
-                drawPathMarkers(olMap, dataProjection, viewProjection);
-                // If both are present, calculate the path automatically
-                if (initialParams.startId && initialParams.endId) {
-                    handleCalculatePath(olMap, dataProjection, viewProjection);
-                }
-            }
             
             // --- Single-Click Handler (Handles Popups) ---
             
@@ -723,9 +302,7 @@
                         featureClicked = true;
                         return feature;
                     }
-                    if (layerTitle === 'Path Markers' || layerTitle === 'Calculated Path') {
-                        return null; 
-                    }
+                    // Ignoring other layers like base tiles, etc.
                 });
                 
                 if (featureClicked) {
