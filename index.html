@@ -600,35 +600,51 @@
             };
             
             olMap.on('click', function (evt) {
+                // Only handle left-clicks (right-clicks open context menu)
+                if (evt.originalEvent && evt.originalEvent.button !== 0) {
+                    return;
+                }
 
                 let featureClicked = false;
-                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+                let clickedFeature = null;
+                
+                // Use forEachFeatureAtPixel with hit tolerance for better detection
+                olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
                     if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
                         featureClicked = true;
+                        clickedFeature = feature;
                         return feature;
                     }
                     if (layerTitle === 'Path Markers' || layerTitle === 'Calculated Path') {
                         return null; 
                     }
+                }, {
+                    hitTolerance: 5 // 5 pixel tolerance for easier clicking
                 });
                 
-                if (featureClicked) {
-                    const properties = feature.getProperties();
+                if (featureClicked && clickedFeature) {
+                    const properties = clickedFeature.getProperties();
                     let htmlContent = `<div class="poi-popup-content">`;
                     let firstItem = true;
                     
+                    // Always show Name and Type prominently if available
+                    if (properties.Name) {
+                        htmlContent += `<b>${properties.Name}</b><br>`;
+                        firstItem = false;
+                    }
+                    if (properties.Type) {
+                        htmlContent += `<b>Type: ${properties.Type}</b><br>`;
+                        firstItem = false;
+                    }
+                    
+                    // Show other properties
                     for (const key in properties) {
-                        if (key !== 'geometry' && properties[key] !== null && properties[key] !== undefined) {
+                        if (key !== 'geometry' && key !== 'Name' && key !== 'Type' && 
+                            properties[key] !== null && properties[key] !== undefined) {
                             const value = properties[key];
                             const displayKey = key.charAt(0).toUpperCase() + key.slice(1);
-                            
-                            if (firstItem && (key === 'Name' || key === 'Type')) {
-                                htmlContent += `<b>${value}</b><br>`;
-                                firstItem = false;
-                            } else if (key !== 'Name' && key !== 'Type') {
-                                htmlContent += `<div><b>${displayKey}:</b> ${value}</div>`;
-                            }
+                            htmlContent += `<div><b>${displayKey}:</b> ${value}</div>`;
                         }
                     }
                     
@@ -640,7 +656,7 @@
                     
                     content.innerHTML = htmlContent;
                     
-                    const geom = feature.getGeometry();
+                    const geom = clickedFeature.getGeometry();
                     let popupCoord;
                     
                     if (geom.getType() === 'Point' || geom.getType() === 'MultiPoint') {
