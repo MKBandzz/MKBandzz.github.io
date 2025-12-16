@@ -22,6 +22,7 @@
     <script type="text/javascript" src="unmined.map.players.js"></script>
 
     <script type="text/javascript" src="custom.markers.js"></script>
+    <script type="text/javascript" src="pathfinding.js"></script>
     <script type="text/javascript" src="unmined.js"></script>
 
     <link rel="stylesheet" type="text/css" href="index.css">
@@ -191,8 +192,18 @@
                             return coords;
                         }
                         
-                        // --- VISUALIZATION LOGIC (Applying Inversion and Projection) ---
+                        const format = new ol.format.GeoJSON();
                         const isRoads = (url === 'roads.geojson');
+
+                        if (isRoads && typeof buildRoadGraph === 'function') {
+                            const graphFeatures = format.readFeatures(data, {
+                                dataProjection: dataProjection,
+                                featureProjection: dataProjection
+                            });
+                            buildRoadGraph(graphFeatures);
+                        }
+                        
+                        // --- VISUALIZATION LOGIC (Applying Inversion and Projection) ---
                         
                         // 1. Apply the manual Z-inversion AND rounding to the GeoJSON data object
                         data.features.forEach(feature => {
@@ -202,7 +213,6 @@
                         });
 
                         // 2. Read features, telling OpenLayers the data is now in the viewProjection space
-                        const format = new ol.format.GeoJSON();
                         const features = format.readFeatures(data, {
                             dataProjection: viewProjection, 
                             featureProjection: viewProjection 
