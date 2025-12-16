@@ -13,7 +13,7 @@
     <link href="lib/ol-contextmenu.css" rel="stylesheet">
     <script src="lib/ol-contextmenu.iife.js"></script>
 
-    <script type="text/javascript" src="lib/lib/toastify-js.js"></script>
+    <script type="text/javascript" src="lib/toastify-js.js"></script>
     <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
 
 
@@ -226,9 +226,11 @@
                 });
             }
 
-            // 3A. Roads Layer Definition
+            // 3A. Roads Layer Definition - UPDATED to include text labels
             function getRoadStyle(feature) {
                 const roadType = feature.get('Type');
+                const roadName = feature.get('Name'); // <-- Get the road name
+                
                 let color = '#FFFFFF'; let width = 2; 
 
                 switch(roadType) {
@@ -243,6 +245,8 @@
                 }
 
                 const outlineWidth = width + 2; 
+                
+                // --- 1. Outline Style (Black Border) ---
                 const outlineStyle = new ol.style.Style({
                     stroke: new ol.style.Stroke({ 
                         color: '#000000', 
@@ -252,6 +256,7 @@
                     }),
                 });
 
+                // --- 2. Surface Style (Road Color) ---
                 const surfaceStyle = new ol.style.Style({
                     stroke: new ol.style.Stroke({ 
                         color: color, 
@@ -260,7 +265,22 @@
                         lineJoin: 'round' 
                     }),
                 });
-                return [outlineStyle, surfaceStyle];
+
+                // --- 3. Text Label Style ---
+                const textStyle = new ol.style.Style({
+                    text: new ol.style.Text({
+                        text: roadName || '', // Use the road name or empty string if null
+                        font: 'bold 12px sans-serif',
+                        fill: new ol.style.Fill({ color: 'black' }),
+                        stroke: new ol.style.Stroke({ color: 'white', width: 3 }), // White outline for readability
+                        placement: 'line', // Place the text along the line geometry
+                        maxAngle: 0.785, // Max angle to consider for horizontal placement (45 degrees)
+                        overflow: true, // Allow text to overflow the line segment
+                    }),
+                });
+                
+                // Return all three styles
+                return [outlineStyle, surfaceStyle, textStyle];
             };
 
             const roadLayer = createVectorLayer('roads.geojson', dataProjection, viewProjection, getRoadStyle);
