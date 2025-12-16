@@ -233,7 +233,7 @@
                     source: vectorSource,
                     style: style,
                     visible: true,
-                    zIndex: 1000 
+                    zIndex: (url === 'roads.geojson') ? 1500 : 900 
                 });
             }
 
@@ -283,8 +283,8 @@
             const poiStyle = function(feature) {
                 if (feature.getGeometry().getType() === 'Polygon') {
                     return new ol.style.Style({
-                        stroke: new ol.style.Stroke({ color: 'magenta', width: 3 }), 
-                        fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.4)' })
+                        stroke: new ol.style.Stroke({ color: 'magenta', width: 2 }), 
+                        fill: new ol.style.Fill({ color: 'rgba(255, 0, 255, 0.2)' })
                     });
                 } else {
                     return new ol.style.Style({
