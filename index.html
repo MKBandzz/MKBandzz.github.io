@@ -157,22 +157,16 @@
                     .then(data => {
                         
                         // --- Coordinate Inversion and ROUNDING for Road VISUALIZATION (Z -> -Y) ---
-                        function processCoordinates(coords, isRoads) {
+                        function processCoordinates(coords) {
                             // Handles multi-dimensional arrays (MultiLineString, Polygon)
                             if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
-                                return coords.map(part => processCoordinates(part, isRoads));
+                                return coords.map(part => processCoordinates(part));
                             }
                             // Handles array of coordinate pairs (LineString, Polygon)
                             if (Array.isArray(coords[0]) && coords[0].length === 2) {
                                 return coords.map(coord => {
                                     let x = coord[0];
                                     let z = coord[1];
-                                    
-                                    // Apply rounding only to roads for alignment
-                                    if (isRoads) {
-                                        x = Math.round(x);
-                                        z = Math.round(z);
-                                    }
                                     
                                     // Apply the standard Z-inversion for OpenLayers view
                                     return [x, z * -1];
@@ -183,10 +177,6 @@
                                 let x = coords[0];
                                 let z = coords[1];
 
-                                if (isRoads) {
-                                    x = Math.round(x);
-                                    z = Math.round(z);
-                                }
                                 return [x, z * -1];
                             }
                             return coords;
@@ -204,16 +194,22 @@
                             buildRoadGraph(graphFeatures);
                         }
                         
-                        // --- VISUALIZATION LOGIC (Applying Inversion and Projection) ---
-                        
-                        // 1. Apply the manual Z-inversion AND rounding to the GeoJSON data object
+                        // Invert Z for all datasets; round only roads
                         data.features.forEach(feature => {
                             if (feature.geometry && feature.geometry.coordinates) {
-                                feature.geometry.coordinates = processCoordinates(feature.geometry.coordinates, isRoads);
+                                let coords = processCoordinates(feature.geometry.coordinates);
+                                if (isRoads) {
+                                    if (Array.isArray(coords[0]) && coords[0].length === 2) {
+                                        coords = coords.map(c => [Math.round(c[0]), Math.round(c[1])]);
+                                    } else if (Array.isArray(coords[0]) && Array.isArray(coords[0][0]) && coords[0][0].length === 2) {
+                                        coords = coords.map(part => part.map(c => [Math.round(c[0]), Math.round(c[1])]));
+                                    }
+                                }
+                                feature.geometry.coordinates = coords;
                             }
                         });
 
-                        // 2. Read features, telling OpenLayers the data is now in the viewProjection space
+                        // After manual inversion, treat data as already in viewProjection space
                         const features = format.readFeatures(data, {
                             dataProjection: viewProjection, 
                             featureProjection: viewProjection 
