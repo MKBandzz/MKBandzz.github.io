@@ -156,6 +156,42 @@
                     .then(response => response.json())
                     .then(data => {
                         
+                        // --- Coordinate Inversion and ROUNDING for Road VISUALIZATION (Z -> -Y) ---
+                        function processCoordinates(coords, isRoads) {
+                            // Handles multi-dimensional arrays (MultiLineString, Polygon)
+                            if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
+                                return coords.map(part => processCoordinates(part, isRoads));
+                            }
+                            // Handles array of coordinate pairs (LineString, Polygon)
+                            if (Array.isArray(coords[0]) && coords[0].length === 2) {
+                                return coords.map(coord => {
+                                    let x = coord[0];
+                                    let z = coord[1];
+                                    
+                                    // Apply rounding only to roads for alignment
+                                    if (isRoads) {
+                                        x = Math.round(x);
+                                        z = Math.round(z);
+                                    }
+                                    
+                                    // Apply the standard Z-inversion for OpenLayers view
+                                    return [x, z * -1];
+                                });
+                            }
+                            // Handles single coordinate pair (Point)
+                            if (coords.length === 2 && typeof coords[1] === 'number') {
+                                let x = coords[0];
+                                let z = coords[1];
+
+                                if (isRoads) {
+                                    x = Math.round(x);
+                                    z = Math.round(z);
+                                }
+                                return [x, z * -1];
+                            }
+                            return coords;
+                        }
+                        
                         const format = new ol.format.GeoJSON();
                         const isRoads = (url === 'roads.geojson');
 
@@ -167,24 +203,22 @@
                             });
                             buildRoadGraph(graphFeatures);
                         }
-
-                        // Read features and let OL handle projection from data -> view
-                        const features = format.readFeatures(data, {
-                            dataProjection: dataProjection, 
-                            featureProjection: viewProjection 
+                        
+                        // --- VISUALIZATION LOGIC (Applying Inversion and Projection) ---
+                        
+                        // 1. Apply the manual Z-inversion AND rounding to the GeoJSON data object
+                        data.features.forEach(feature => {
+                            if (feature.geometry && feature.geometry.coordinates) {
+                                feature.geometry.coordinates = processCoordinates(feature.geometry.coordinates, isRoads);
+                            }
                         });
 
-                        // Round road vertex coordinates for tighter alignment on the view
-                        if (isRoads) {
-                            features.forEach(f => {
-                                const geom = f.getGeometry();
-                                if (geom && geom.getType() === 'LineString') {
-                                    const coords = geom.getCoordinates().map(([x, y]) => [Math.round(x), Math.round(y)]);
-                                    geom.setCoordinates(coords);
-                                }
-                            });
-                        }
-
+                        // 2. Read features, telling OpenLayers the data is now in the viewProjection space
+                        const features = format.readFeatures(data, {
+                            dataProjection: viewProjection, 
+                            featureProjection: viewProjection 
+                        });
+                        
                         vectorSource.addFeatures(features);
                         
                         if (url === 'roads.geojson') {
