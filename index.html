@@ -486,6 +486,65 @@
             resetButton.onclick = resetPath;
             pathControlDiv.appendChild(resetButton);
             
+            // Add separator
+            const separator = document.createElement('hr');
+            separator.style.margin = '10px 0';
+            separator.style.border = 'none';
+            separator.style.borderTop = '1px solid #ccc';
+            pathControlDiv.appendChild(separator);
+            
+            // Context Menu Toggles
+            const toggleLabel = document.createElement('p');
+            toggleLabel.textContent = 'Context Menu:';
+            toggleLabel.style.margin = '5px 0';
+            toggleLabel.style.fontSize = '12px';
+            toggleLabel.style.fontWeight = 'bold';
+            pathControlDiv.appendChild(toggleLabel);
+            
+            // Toggle state
+            window.showPathfindingItems = true;
+            window.showDefaultItems = true;
+            
+            // Pathfinding items toggle
+            const pathfindingToggleLabel = document.createElement('label');
+            pathfindingToggleLabel.style.display = 'flex';
+            pathfindingToggleLabel.style.alignItems = 'center';
+            pathfindingToggleLabel.style.margin = '5px 0';
+            pathfindingToggleLabel.style.fontSize = '12px';
+            pathfindingToggleLabel.style.cursor = 'pointer';
+            
+            const pathfindingToggle = document.createElement('input');
+            pathfindingToggle.type = 'checkbox';
+            pathfindingToggle.checked = true;
+            pathfindingToggle.style.marginRight = '5px';
+            pathfindingToggle.onchange = function() {
+                window.showPathfindingItems = this.checked;
+                updateContextMenu();
+            };
+            pathfindingToggleLabel.appendChild(pathfindingToggle);
+            pathfindingToggleLabel.appendChild(document.createTextNode('Pathfinding items'));
+            pathControlDiv.appendChild(pathfindingToggleLabel);
+            
+            // Default items toggle
+            const defaultToggleLabel = document.createElement('label');
+            defaultToggleLabel.style.display = 'flex';
+            defaultToggleLabel.style.alignItems = 'center';
+            defaultToggleLabel.style.margin = '5px 0';
+            defaultToggleLabel.style.fontSize = '12px';
+            defaultToggleLabel.style.cursor = 'pointer';
+            
+            const defaultToggle = document.createElement('input');
+            defaultToggle.type = 'checkbox';
+            defaultToggle.checked = true;
+            defaultToggle.style.marginRight = '5px';
+            defaultToggle.onchange = function() {
+                window.showDefaultItems = this.checked;
+                updateContextMenu();
+            };
+            defaultToggleLabel.appendChild(defaultToggle);
+            defaultToggleLabel.appendChild(document.createTextNode('Default items'));
+            pathControlDiv.appendChild(defaultToggleLabel);
+            
             olMap.addControl(new ol.control.Control({ element: pathControlDiv }));
 
 
@@ -549,7 +608,7 @@
             }
             
             // === Context Menu Setup ===
-            const contextmenu_items = [
+            const pathfinding_menu_items = [
                 {
                     text: 'Set as Path Start (A)',
                     classname: 'bold path-start-item',
@@ -565,16 +624,43 @@
                     callback: function(obj) {
                         handleContextSelection(obj.coordinate, 'end');
                     }
-                },
-                '-' // Separator 
+                }
             ];
             
-            const contextmenu = new ContextMenu({
-                width: 180,
-                defaultItems: true, 
-                items: contextmenu_items
-            });
-            olMap.addControl(contextmenu);
+            // Function to update context menu based on toggle states
+            let contextmenu = null;
+            
+            function updateContextMenu() {
+                // Remove existing context menu if it exists
+                if (contextmenu) {
+                    olMap.removeControl(contextmenu);
+                }
+                
+                // Build items array based on toggles
+                const items = [];
+                
+                // Add pathfinding items if enabled
+                if (window.showPathfindingItems) {
+                    items.push(...pathfinding_menu_items);
+                }
+                
+                // Add separator if both are enabled
+                if (window.showPathfindingItems && window.showDefaultItems) {
+                    items.push('-');
+                }
+                
+                // Create new context menu with current settings
+                contextmenu = new ContextMenu({
+                    width: 180,
+                    defaultItems: window.showDefaultItems, // Show default items based on toggle
+                    items: items.length > 0 ? items : undefined // Only set items if we have custom ones
+                });
+                
+                olMap.addControl(contextmenu);
+            }
+            
+            // Initialize context menu
+            updateContextMenu();
 
             
             // 6. INITIALIZE STATUS TEXT
@@ -635,22 +721,13 @@
                     const properties = clickedFeature.getProperties();
                     let htmlContent = `<div class="poi-popup-content">`;
                     
-                    // For Roads: Show Name and Type prominently
+                    // For Roads: Show ONLY Name and Type
                     if (clickedLayerTitle === 'Roads Network') {
                         if (properties.Name) {
                             htmlContent += `<b>${properties.Name}</b><br>`;
                         }
                         if (properties.Type) {
                             htmlContent += `<b>Type: ${properties.Type}</b>`;
-                        }
-                        // Show other road properties if they exist
-                        for (const key in properties) {
-                            if (key !== 'geometry' && key !== 'Name' && key !== 'Type' && 
-                                properties[key] !== null && properties[key] !== undefined) {
-                                const value = properties[key];
-                                const displayKey = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim();
-                                htmlContent += `<div><b>${displayKey}:</b> ${value}</div>`;
-                            }
                         }
                     } 
                     // For Properties: Show all non-null values
