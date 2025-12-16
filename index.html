@@ -498,11 +498,9 @@
                     return;
                 }
                 
-                // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
-                const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
-                
-                // 2. CRITICAL: Explicitly negate the Z-coordinate (index 1) and pass the high-precision coordinate.
-                let preciseBlockCoord = [blockCoord[0], blockCoord[1] * -1];
+                // 1. Transform from View (OpenLayers) to Minecraft block coordinates ([x, z]).
+                //    The custom projections already handle the Y/Z sign flip, so no manual negation here.
+                const preciseBlockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
 
 
                 // *** DEBUG LOGGING ***
