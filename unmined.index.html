@@ -117,7 +117,7 @@
     <script type="text/javascript">
         
         // =================================================================
-        // GLOBAL STATE
+        // GLOBAL STATE (Only core map layers remain)
         // =================================================================
         window.roadLayerSource = null;
 
@@ -155,65 +155,34 @@
                     .then(response => response.json())
                     .then(data => {
                         
-                        // --- Coordinate Inversion and ROUNDING for Road VISUALIZATION (Z -> -Y) ---
-                        function processCoordinates(coords, isRoads) {
-                            // Handles multi-dimensional arrays (MultiLineString, Polygon)
+                        // --- Coordinate Inversion for VISUAL DISPLAY (Z -> -Y) ---
+                        function invertCoordinates(coords) {
                             if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
-                                return coords.map(part => processCoordinates(part, isRoads));
+                                return coords.map(part => invertCoordinates(part));
                             }
-                            // Handles array of coordinate pairs (LineString)
                             if (Array.isArray(coords[0]) && coords[0].length === 2) {
-                                return coords.map(coord => {
-                                    let x = coord[0];
-                                    let z = coord[1];
-                                    
-                                    // Apply rounding only to roads for alignment
-                                    if (isRoads) {
-                                        x = Math.round(x);
-                                        z = Math.round(z);
-                                    }
-                                    
-                                    // Apply the Z-inversion for OpenLayers view
-                                    return [x, z * -1];
-                                });
+                                return coords.map(coord => [coord[0], coord[1] * -1]);
                             }
-                            // Handles single coordinate pair (Point) - This shouldn't be reached for LineString GeoJSON, but is kept for robustness
                             if (coords.length === 2 && typeof coords[1] === 'number') {
-                                let x = coords[0];
-                                let z = coords[1];
-
-                                if (isRoads) {
-                                    x = Math.round(x);
-                                    z = Math.round(z);
-                                }
-                                return [x, z * -1];
+                                return [coords[0], coords[1] * -1];
                             }
                             return coords;
                         }
                         
                         // --- VISUALIZATION LOGIC (Applying Inversion and Projection) ---
-                        const isRoads = (url === 'roads.geojson');
-                        
-                        // 1. Apply the manual Z-inversion AND rounding to the GeoJSON data object
+                        // 1. Apply the manual Z-inversion to the GeoJSON data object (for OL to see the map correctly)
                         data.features.forEach(feature => {
                             if (feature.geometry && feature.geometry.coordinates) {
-                                // IMPORTANT: This modifies the source data coordinates
-                                feature.geometry.coordinates = processCoordinates(feature.geometry.coordinates, isRoads);
+                                feature.geometry.coordinates = invertCoordinates(feature.geometry.coordinates);
                             }
                         });
 
-                        // 2. Read features, using the appropriate projections
+                        // 2. Read features again, transforming from dataProjection to viewProjection 
                         const format = new ol.format.GeoJSON();
-                        
-                        // CRITICAL FIX: Since we manually converted the coordinates from [X, Z] 
-                        // to the display space [X, -Z], we MUST tell OpenLayers that the 
-                        // data is now in the viewProjection space, and we want features 
-                        // also in the viewProjection space.
                         const features = format.readFeatures(data, {
-                            dataProjection: viewProjection, 
+                            dataProjection: dataProjection, // This worked before, keeping it for stability
                             featureProjection: viewProjection 
                         });
-                        
                         vectorSource.addFeatures(features);
                         
                         if (url === 'roads.geojson') {
@@ -250,21 +219,11 @@
 
                 const outlineWidth = width + 2; 
                 const outlineStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ 
-                        color: '#000000', 
-                        width: outlineWidth, 
-                        lineCap: 'round', 
-                        lineJoin: 'round' 
-                    }),
+                    stroke: new ol.style.Stroke({ color: '#000000', width: outlineWidth, lineCap: 'round', lineJoin: 'round' }),
                 });
 
                 const surfaceStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ 
-                        color: color, 
-                        width: width, 
-                        lineCap: 'round', 
-                        lineJoin: 'round' 
-                    }),
+                    stroke: new ol.style.Stroke({ color: color, width: width, lineCap: 'round', lineJoin: 'round' }),
                 });
                 return [outlineStyle, surfaceStyle];
             };
@@ -291,18 +250,16 @@
                 }
             };
             
-            // NOTE: POIs also need the Z-inversion, but not the rounding, which is handled 
-            // by the processCoordinates function based on the isRoads flag.
             const poiLayer = createVectorLayer('properties.geojson', dataProjection, viewProjection, poiStyle);
             poiLayer.set('title', 'Properties/POIs');
             olMap.addLayer(poiLayer);
             
             
-            // 4. Context Menu Setup (No items should appear)
+            // 4. Context Menu Setup (Reverting to OL Defaults)
             const contextmenu = new ol.control.ContextMenu({
                 width: 180,
-                defaultItems: false, 
-                items: [] 
+                defaultItems: true, // Re-enabling default items as it was in the "working" version
+                items: [] // No custom items
             });
             olMap.addControl(contextmenu);
 
