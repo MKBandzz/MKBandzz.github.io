@@ -13,7 +13,7 @@
     <link href="lib/ol-contextmenu.css" rel="stylesheet">
     <script src="lib/ol-contextmenu.iife.js"></script>
 
-    <script type="text/javascript" src="lib/toastify-js.js"></script>
+    <script type="text/javascript" src="lib/lib/toastify-js.js"></script>
     <link rel="stylesheet" type="text/css" href="lib/toastify-js.min.css">
 
 
@@ -117,7 +117,7 @@
     <script type="text/javascript">
         
         // =================================================================
-        // GLOBAL STATE (Only core map layers remain)
+        // GLOBAL STATE
         // =================================================================
         window.roadLayerSource = null;
 
@@ -146,7 +146,7 @@
 
             if (!olMap || !dataProjection || !viewProjection) { console.error("CRITICAL FAILURE: Map or projection objects are missing."); return; }
             
-            // 3. VECTOR LAYER SETUP UTILITY WITH COORDINATE NEGATION FIX
+            // 3. VECTOR LAYER SETUP UTILITY WITH COORDINATE NEGATION FIX AND ROUNDING (Roads)
             
             function createVectorLayer(url, dataProjection, viewProjection, style) {
                 const vectorSource = new ol.source.Vector();
@@ -155,34 +155,59 @@
                     .then(response => response.json())
                     .then(data => {
                         
-                        // --- Coordinate Inversion for VISUAL DISPLAY (Z -> -Y) ---
-                        function invertCoordinates(coords) {
+                        // --- Coordinate Inversion and ROUNDING for Road VISUALIZATION (Z -> -Y) ---
+                        function processCoordinates(coords, isRoads) {
+                            // Handles multi-dimensional arrays (MultiLineString, Polygon)
                             if (Array.isArray(coords[0]) && coords[0].length > 1 && Array.isArray(coords[0][0])) {
-                                return coords.map(part => invertCoordinates(part));
+                                return coords.map(part => processCoordinates(part, isRoads));
                             }
+                            // Handles array of coordinate pairs (LineString, Polygon)
                             if (Array.isArray(coords[0]) && coords[0].length === 2) {
-                                return coords.map(coord => [coord[0], coord[1] * -1]);
+                                return coords.map(coord => {
+                                    let x = coord[0];
+                                    let z = coord[1];
+                                    
+                                    // Apply rounding only to roads for alignment
+                                    if (isRoads) {
+                                        x = Math.round(x);
+                                        z = Math.round(z);
+                                    }
+                                    
+                                    // Apply the standard Z-inversion for OpenLayers view
+                                    return [x, z * -1];
+                                });
                             }
+                            // Handles single coordinate pair (Point)
                             if (coords.length === 2 && typeof coords[1] === 'number') {
-                                return [coords[0], coords[1] * -1];
+                                let x = coords[0];
+                                let z = coords[1];
+
+                                if (isRoads) {
+                                    x = Math.round(x);
+                                    z = Math.round(z);
+                                }
+                                return [x, z * -1];
                             }
                             return coords;
                         }
                         
                         // --- VISUALIZATION LOGIC (Applying Inversion and Projection) ---
-                        // 1. Apply the manual Z-inversion to the GeoJSON data object (for OL to see the map correctly)
+                        const isRoads = (url === 'roads.geojson');
+                        
+                        // 1. Apply the manual Z-inversion AND rounding to the GeoJSON data object
                         data.features.forEach(feature => {
                             if (feature.geometry && feature.geometry.coordinates) {
-                                feature.geometry.coordinates = invertCoordinates(feature.geometry.coordinates);
+                                feature.geometry.coordinates = processCoordinates(feature.geometry.coordinates, isRoads);
                             }
                         });
 
-                        // 2. Read features again, transforming from dataProjection to viewProjection 
+                        // 2. Read features, telling OpenLayers the data is now in the viewProjection space
                         const format = new ol.format.GeoJSON();
                         const features = format.readFeatures(data, {
-                            dataProjection: dataProjection, // This worked before, keeping it for stability
+                            dataProjection: viewProjection, 
                             featureProjection: viewProjection 
                         });
+                        
                         vectorSource.addFeatures(features);
                         
                         if (url === 'roads.geojson') {
@@ -219,11 +244,21 @@
 
                 const outlineWidth = width + 2; 
                 const outlineStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: '#000000', width: outlineWidth, lineCap: 'round', lineJoin: 'round' }),
+                    stroke: new ol.style.Stroke({ 
+                        color: '#000000', 
+                        width: outlineWidth, 
+                        lineCap: 'round', 
+                        lineJoin: 'round' 
+                    }),
                 });
 
                 const surfaceStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: color, width: width, lineCap: 'round', lineJoin: 'round' }),
+                    stroke: new ol.style.Stroke({ 
+                        color: color, 
+                        width: width, 
+                        lineCap: 'round', 
+                        lineJoin: 'round' 
+                    }),
                 });
                 return [outlineStyle, surfaceStyle];
             };
@@ -255,11 +290,12 @@
             olMap.addLayer(poiLayer);
             
             
-            // 4. Context Menu Setup (Reverting to OL Defaults)
+            // 4. Context Menu Setup - CLEAN MENU
+            
             const contextmenu = new ol.control.ContextMenu({
                 width: 180,
-                defaultItems: true, // Re-enabling default items as it was in the "working" version
-                items: [] // No custom items
+                defaultItems: false, // NO default items
+                items: [] // NO custom items
             });
             olMap.addControl(contextmenu);
 
