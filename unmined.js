@@ -174,6 +174,8 @@ class Unmined {
     regionMap = null;
     markersLayer = null;
     playerMarkersLayer = null;
+    pathLayer = null;
+    pathLayerSource = null;
 
     #scaleLine = null;
     #options = null;
@@ -332,6 +334,7 @@ class Unmined {
         // --- NEW CODE: Pathfinding Coordinates ---
         this.pathStartCoordinates = undefined;
         this.pathEndCoordinates = undefined;
+        this.initPathLayer();
         // ----------------------------------------
     }
 
@@ -350,6 +353,101 @@ class Unmined {
 
     placeRedDotMarker(coordinates) {
         this.redDotMarker.setCoordinates(coordinates);
+    }
+
+    initPathLayer() {
+        this.pathLayerSource = new ol.source.Vector({ features: [] });
+        this.pathLayer = new ol.layer.Vector({
+            source: this.pathLayerSource,
+            zIndex: 1500
+        });
+        this.olMap.addLayer(this.pathLayer);
+    }
+
+    clearPathVisualization() {
+        if (this.pathLayerSource) {
+            this.pathLayerSource.clear();
+        }
+    }
+
+    drawPath(blockCoords) {
+        if (!this.pathLayerSource || !blockCoords || blockCoords.length === 0) return;
+
+        this.clearPathVisualization();
+
+        const toView = (coord) => ol.proj.transform([coord[0], coord[1]], this.dataProjection, this.viewProjection);
+
+        const lineFeature = new ol.Feature({
+            geometry: new ol.geom.LineString(blockCoords.map(toView))
+        });
+        lineFeature.setStyle(new ol.style.Style({
+            stroke: new ol.style.Stroke({
+                color: '#00c2ff',
+                width: 5,
+                lineCap: 'round',
+                lineJoin: 'round'
+            })
+        }));
+
+        const startFeature = new ol.Feature({
+            geometry: new ol.geom.Point(toView(blockCoords[0]))
+        });
+        startFeature.setStyle(new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 6,
+                fill: new ol.style.Fill({ color: '#3cb371' }),
+                stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 })
+            })
+        }));
+
+        const endFeature = new ol.Feature({
+            geometry: new ol.geom.Point(toView(blockCoords[blockCoords.length - 1]))
+        });
+        endFeature.setStyle(new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 6,
+                fill: new ol.style.Fill({ color: '#ff5a5f' }),
+                stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 })
+            })
+        }));
+
+        this.pathLayerSource.addFeatures([lineFeature, startFeature, endFeature]);
+    }
+
+    calculateAndRenderPath() {
+        if (!this.pathStartCoordinates || !this.pathEndCoordinates) return;
+
+        if (typeof findNearestNode !== 'function' || typeof calculatePath !== 'function') {
+            Unmined.toast('Pathfinding not available');
+            return;
+        }
+
+        if (!roadGraph || Object.keys(roadGraph).length === 0) {
+            Unmined.toast('Road network is still loading');
+            return;
+        }
+
+        const startId = findNearestNode(this.pathStartCoordinates);
+        const endId = findNearestNode(this.pathEndCoordinates);
+
+        if (!startId || !endId) {
+            Unmined.toast('No nearby road node for one of the points');
+            this.clearPathVisualization();
+            return;
+        }
+
+        const result = calculatePath(startId, endId);
+
+        if (!result.path || result.path.length === 0) {
+            Unmined.toast(result.message || 'No route found');
+            this.clearPathVisualization();
+            return;
+        }
+
+        this.drawPath(result.path);
+
+        const distanceText = result.distance ? ` (${result.distance.toFixed(0)} blocks)` : '';
+        Unmined.toast((result.message || 'Route found') + distanceText);
     }
 
     createMarkersLayer(markers) {
@@ -629,7 +727,7 @@ class Unmined {
                 callback: () => {
                     this.pathStartCoordinates = coordinates;
                     Unmined.toast(`Path Start set to: ${formattedCoords}`);
-                    // Call pathfinding function here if implemented
+                    this.calculateAndRenderPath();
                 }
             });
 
@@ -639,7 +737,7 @@ class Unmined {
                 callback: () => {
                     this.pathEndCoordinates = coordinates;
                     Unmined.toast(`Path End set to: ${formattedCoords}`);
-                    // Call pathfinding function here if implemented
+                    this.calculateAndRenderPath();
                 }
             });
             
@@ -651,7 +749,7 @@ class Unmined {
                         this.pathStartCoordinates = undefined;
                         this.pathEndCoordinates = undefined;
                         Unmined.toast('Path points cleared');
-                        // Clear path visualization here if implemented
+                        this.clearPathVisualization();
                     }
                 });
             }
