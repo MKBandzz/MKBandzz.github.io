@@ -389,7 +389,7 @@
                 });
             }
 
-            // 3A. Roads Layer Definition (Updated with Labels)
+            // 3A. Roads Layer Definition (Updated with Labels and Ramp exclusion)
             function getRoadStyle(feature, resolution) {
                 const roadType = feature.get('Type');
                 const roadName = feature.get('Name'); // Use the 'Name' attribute
@@ -436,7 +436,8 @@
 
                 // 3. Text Label style (Google Maps style)
                 // Only render text if we are zoomed in enough (resolution < 10)
-                if (roadName && resolution < 10) {
+                // AND if the road type is NOT a Ramp.
+                if (roadName && resolution < 10 && roadType !== 'Ramp') {
                     const textStyle = new ol.style.Style({
                         text: new ol.style.Text({
                             text: roadName,

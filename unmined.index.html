@@ -144,50 +144,13 @@
     <script type="text/javascript">
         
         // =================================================================
-        // GLOBAL STATE FOR PATHFINDING (Only for Layers, IDs are in URL)
+        // GLOBAL STATE FOR PATHFINDING (IDs kept in JS, not URL)
         // =================================================================
         window.pathMarkerLayer = null; 
         window.pathLineLayer = null;   
         window.roadLayerSource = null;
-
-        // =================================================================
-        // URL STATE HANDLERS - NOW WITH CONFLICT RESOLUTION
-        // =================================================================
-
-        // Utility to read the hash part of the URL and get ALL parameters
-        function getPathParams() {
-            const hash = window.location.hash.substring(1); // Remove '#'
-            const params = new URLSearchParams(hash);
-            
-            // Return all parameters, including the specific path ones
-            return {
-                allParams: params, // The full URLSearchParams object (contains zoom, x, y, etc.)
-                startId: params.get('start'),
-                endId: params.get('end')
-            };
-        }
-
-        // Utility to write the hash part of the URL (merges with existing parameters)
-        function updateUrlHash(newStartId, newEndId) {
-            const { allParams } = getPathParams();
-            
-            // Update or delete 'start'
-            if (newStartId) {
-                allParams.set('start', newStartId);
-            } else {
-                allParams.delete('start');
-            }
-            
-            // Update or delete 'end'
-            if (newEndId) {
-                allParams.set('end', newEndId);
-            } else {
-                allParams.delete('end');
-            }
-            
-            // Write the full, merged set of parameters back to the URL
-            window.location.hash = allParams.toString();
-        }
+        window.pathStartId = null;     // e.g. "123,456"
+        window.pathEndId = null;
 
 
         // Utility function to convert a node ID string "x,z" to a coordinate array [x, z]
@@ -199,10 +162,8 @@
         function drawPathMarkers(olMap, dataProjection, viewProjection) {
             window.pathMarkerLayer.getSource().clear();
             
-            const { startId, endId } = getPathParams();
-
-            const startCoord = nodeIdToCoord(startId);
-            const endCoord = nodeIdToCoord(endId);
+            const startCoord = nodeIdToCoord(window.pathStartId);
+            const endCoord = nodeIdToCoord(window.pathEndId);
             
             // Start Marker (Green Circle)
             if (startCoord) {
@@ -253,8 +214,8 @@
 
         // Utility to reset the pathfinding state completely
         function resetPath() {
-            // Clear URL state (only 'start' and 'end' parameters will be removed)
-            updateUrlHash(null, null); 
+            window.pathStartId = null;
+            window.pathEndId = null;
             
             if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
             if (window.pathLineLayer) window.pathLineLayer.getSource().clear();
@@ -267,14 +228,15 @@
             const statusElement = document.getElementById('path-status');
             statusElement.textContent = 'Calculating...';
             
-            const { startId, endId } = getPathParams();
+            const startId = window.pathStartId;
+            const endId = window.pathEndId;
 
             if (typeof calculatePath !== 'function') {
                  statusElement.textContent = "Error: Pathfinding script failed to load.";
                  return;
             }
 
-            // Use IDs directly from the URL
+            // Use IDs stored in globals
             const result = calculatePath(startId, endId);
             
             if (result.path && result.path.length > 0) {
@@ -422,34 +384,76 @@
                     source: vectorSource,
                     style: style,
                     visible: true,
+                    declutter: true, // <--- ADDED: Enables decluttering for text labels
                     zIndex: 1000 
                 });
             }
 
-            // 3A. Roads Layer Definition (uses the fixed createVectorLayer)
-            function getRoadStyle(feature) {
+            // 3A. Roads Layer Definition (Updated with Labels and Ramp exclusion)
+            function getRoadStyle(feature, resolution) {
                 const roadType = feature.get('Type');
-                let color = '#FFFFFF'; let width = 2; 
+                const roadName = feature.get('Name'); // Use the 'Name' attribute
+                
+                let color = '#FFFFFF'; 
+                let width = 2; 
+                let zIndex = 0;
 
+                // Assign colors and widths based on type
                 switch(roadType) {
                     case 'Highway': case 'Ramp': case 'Parkway': case 'Freeway':
-                        color = '#F7D678'; width = 5; break;
+                        color = '#F7D678'; width = 5; zIndex = 10; break;
                     case 'Arterial': case 'Road':
-                        color = '#FFFFFF'; width = 4; break;
+                        color = '#FFFFFF'; width = 4; zIndex = 5; break;
                     case 'Street': 
-                        color = '#C0C0C0'; width = 3; break;
+                        color = '#C0C0C0'; width = 3; zIndex = 1; break;
                     default:
                         color = '#FFFFFF'; width = 2; break;
                 }
 
                 const outlineWidth = width + 2; 
+
+                // 1. Black Outline style
                 const outlineStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: '#000000', width: outlineWidth, lineCap: 'round', lineJoin: 'round' }),
+                    stroke: new ol.style.Stroke({ 
+                        color: '#000000', 
+                        width: outlineWidth, 
+                        lineCap: 'round', 
+                        lineJoin: 'round' 
+                    }),
+                    zIndex: zIndex
                 });
 
+                // 2. Road Surface style
                 const surfaceStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: color, width: width, lineCap: 'round', lineJoin: 'round' }),
+                    stroke: new ol.style.Stroke({ 
+                        color: color, 
+                        width: width, 
+                        lineCap: 'round', 
+                        lineJoin: 'round' 
+                    }),
+                    zIndex: zIndex + 1
                 });
+
+                // 3. Text Label style (Google Maps style)
+                // Only render text if we are zoomed in enough (resolution < 10)
+                // AND if the road type is NOT a Ramp.
+                if (roadName && resolution < 10 && roadType !== 'Ramp') {
+                    const textStyle = new ol.style.Style({
+                        text: new ol.style.Text({
+                            text: roadName,
+                            font: 'bold 12px "Open Sans", "Arial", sans-serif',
+                            placement: 'line',       // Follows the road curve
+                            maxAngle: 0.4,           // Hides label on sharp turns
+                            fill: new ol.style.Fill({ color: '#000000' }), // Black Text
+                            stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 }), // White Halo
+                            offsetY: 0,
+                            overflow: true // Allows text to be slightly longer than the segment
+                        }),
+                        zIndex: 999 // Ensures text is on top
+                    });
+                    return [outlineStyle, surfaceStyle, textStyle];
+                }
+
                 return [outlineStyle, surfaceStyle];
             };
 
@@ -493,7 +497,8 @@
             calculateButton.textContent = 'Calculate Route';
             calculateButton.onclick = function() {
                 
-                const { startId, endId } = getPathParams();
+                const startId = window.pathStartId;
+                const endId = window.pathEndId;
 
                 console.log("--- Pathfinding Debug on Calculate Click (URL Check) ---");
                 console.log(`Start Node (A): ${startId}`);
@@ -535,14 +540,9 @@
                     return;
                 }
                 
-                // Get current state from URL (includes map center, zoom, etc.)
-                let { startId, endId } = getPathParams();
-
-                // 1. Transform from View (OpenLayers degrees) to Block Coordinates (Minecraft blocks)
-                const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
-                
-                // 2. CRITICAL: Explicitly negate the Z-coordinate (index 1) and pass the high-precision coordinate.
-                let preciseBlockCoord = [blockCoord[0], blockCoord[1] * -1];
+                // 1. Transform from View (OpenLayers) to Minecraft block coordinates ([x, z]).
+                //    The custom projections already handle the Y/Z sign flip, so no manual negation here.
+                const preciseBlockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
 
 
                 // *** DEBUG LOGGING ***
@@ -557,12 +557,11 @@
                 console.log("Result of findNearestNode:", nearestNode); 
 
                 if (nearestNode) {
-                    // Update URL hash with the new coordinate
+                    // Update in-memory IDs with the new coordinate
                     if (type === 'start') {
-                        startId = nearestNode;
-                        // endId remains as it was, preserving the map's view parameters
+                        window.pathStartId = nearestNode;
                     } else {
-                        if (!startId) {
+                        if (!window.pathStartId) {
                             Toastify({
                                 text: "Please set the START (A) point first.",
                                 duration: 3000,
@@ -572,16 +571,12 @@
                             }).showToast();
                             return;
                         }
-                        // startId remains as it was
-                        endId = nearestNode;
+                        window.pathEndId = nearestNode;
                     }
-                    
-                    // Write new state to URL (this merges the start/end params with existing hash data)
-                    updateUrlHash(startId, endId); 
-                    
+
                     // Update visuals and status
                     drawPathMarkers(olMap, dataProjection, viewProjection);
-                    updateStatusText(startId, endId);
+                    updateStatusText(window.pathStartId, window.pathEndId);
                     window.pathLineLayer.getSource().clear(); 
                     
                 } else {
@@ -616,26 +611,16 @@
                 '-' // Separator 
             ];
             
-            const contextmenu = new ol.control.ContextMenu({
+            const contextmenu = new ContextMenu({
                 width: 180,
-                defaultItems: true, 
+                defaultItems: false, // Only show our custom items, not default OpenLayers items
                 items: contextmenu_items
             });
             olMap.addControl(contextmenu);
 
             
-            // 6. INITIALIZE STATE FROM URL HASH
-            const initialParams = getPathParams();
-            updateStatusText(initialParams.startId, initialParams.endId);
-            
-            // If the map loads with points in the URL, draw them immediately
-            if (initialParams.startId || initialParams.endId) {
-                drawPathMarkers(olMap, dataProjection, viewProjection);
-                // If both are present, calculate the path automatically
-                if (initialParams.startId && initialParams.endId) {
-                    handleCalculatePath(olMap, dataProjection, viewProjection);
-                }
-            }
+            // 6. INITIALIZE STATUS TEXT
+            updateStatusText(window.pathStartId, window.pathEndId);
             
             // --- Single-Click Handler (Handles Popups) ---
             
@@ -656,63 +641,80 @@
                 return false;
             };
             
-            olMap.on('click', function (evt) {
+            olMap.on('singleclick', function (evt) {
+                // Only handle left-clicks (right-clicks open context menu)
+                if (evt.originalEvent && evt.originalEvent.button !== 0) {
+                    return;
+                }
 
-                let featureClicked = false;
-                const feature = olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+                let clickedFeature = null;
+                let clickedLayerTitle = null;
+                
+                // Use forEachFeatureAtPixel with hit tolerance for better detection
+                olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
-                    if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
-                        featureClicked = true;
-                        return feature;
-                    }
+                    
+                    // Ignore pathfinding layers
                     if (layerTitle === 'Path Markers' || layerTitle === 'Calculated Path') {
                         return null; 
                     }
+                    
+                    // Check for roads or properties
+                    if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
+                        clickedFeature = feature;
+                        clickedLayerTitle = layerTitle;
+                        return feature; // Stop searching once we find a valid feature
+                    }
+                }, {
+                    hitTolerance: 5, // 5 pixel tolerance for easier clicking
+                    layerFilter: function(layer) {
+                        const title = layer.get('title');
+                        return title === 'Roads Network' || title === 'Properties/POIs';
+                    }
                 });
                 
-                if (featureClicked) {
-                    const properties = feature.getProperties();
+                if (clickedFeature) {
+                    const properties = clickedFeature.getProperties();
                     let htmlContent = `<div class="poi-popup-content">`;
-                    let firstItem = true;
                     
-                    for (const key in properties) {
-                        if (key !== 'geometry' && properties[key] !== null && properties[key] !== undefined) {
-                            const value = properties[key];
-                            const displayKey = key.charAt(0).toUpperCase() + key.slice(1);
-                            
-                            if (firstItem && (key === 'Name' || key === 'Type')) {
-                                htmlContent += `<b>${value}</b><br>`;
-                                firstItem = false;
-                            } else if (key !== 'Name' && key !== 'Type') {
-                                htmlContent += `<div><b>${displayKey}:</b> ${value}</div>`;
+                    // For Roads: Show ONLY Name and Type
+                    if (clickedLayerTitle === 'Roads Network') {
+                        if (properties.Name) {
+                            htmlContent += `<b>${properties.Name}</b><br>`;
+                        }
+                        if (properties.Type) {
+                            htmlContent += `<b>Type: ${properties.Type}</b>`;
+                        }
+                    } 
+                    // For Properties: Show all non-null values
+                    else if (clickedLayerTitle === 'Properties/POIs') {
+                        let hasContent = false;
+                        for (const key in properties) {
+                            if (key !== 'geometry' && properties[key] !== null && properties[key] !== undefined) {
+                                const value = properties[key];
+                                const displayKey = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim();
+                                if (key === 'Name' || key === 'Type') {
+                                    htmlContent += `<b>${displayKey}:</b> ${value}<br>`;
+                                } else {
+                                    htmlContent += `<div><b>${displayKey}:</b> ${value}</div>`;
+                                }
+                                hasContent = true;
                             }
+                        }
+                        if (!hasContent) {
+                            htmlContent += `<strong>Property</strong>`;
                         }
                     }
                     
-                    if (firstItem) { 
-                        htmlContent = `<div class="poi-popup-content"><strong>Feature Details</strong>` + htmlContent;
-                    }
-                    
                     htmlContent += `</div>`;
-                    
                     content.innerHTML = htmlContent;
                     
-                    const geom = feature.getGeometry();
-                    let popupCoord;
-                    
-                    if (geom.getType() === 'Point' || geom.getType() === 'MultiPoint') {
-                        popupCoord = geom.getCoordinates().flat().slice(0, 2); 
-                    } else {
-                        popupCoord = olMap.getCoordinateFromPixel(evt.pixel);
-                    }
-                    
-                    overlay.setPosition(popupCoord);
-
-                    return; 
+                    // Position popup at click location
+                    overlay.setPosition(evt.coordinate);
+                } else {
+                    // No feature clicked, hide popup
+                    overlay.setPosition(undefined);
                 }
-                
-                overlay.setPosition(undefined);
-
             }); 
 
 
