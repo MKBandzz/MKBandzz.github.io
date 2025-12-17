@@ -9,7 +9,7 @@
 MKB Map is powered by UnMiNeD, and uses GeoJSON files overlayed on top of the map.
 
 - See road names and type
-- See properties, its name and address
+- See properties, its name, address, and type
 - ✨Magic ✨
 
 ## Features
@@ -24,11 +24,12 @@ MKB Map is powered by UnMiNeD, and uses GeoJSON files overlayed on top of the ma
 
 - Search for roads, pois, addresses, etc
 - Polish UI
+- Full pathfinding using Dijkstra
 
 Updates to the map layer are typically done every month
 
 
-_Version 2.1.1 (12-13-2025)_
+_Version 2.1.1 (12-16-2025)_
 
 -Pathfinding currently freezes after points set - experimental
 
