@@ -384,34 +384,75 @@
                     source: vectorSource,
                     style: style,
                     visible: true,
+                    declutter: true, // <--- ADDED: Enables decluttering for text labels
                     zIndex: 1000 
                 });
             }
 
-            // 3A. Roads Layer Definition (uses the fixed createVectorLayer)
-            function getRoadStyle(feature) {
+            // 3A. Roads Layer Definition (Updated with Labels)
+            function getRoadStyle(feature, resolution) {
                 const roadType = feature.get('Type');
-                let color = '#FFFFFF'; let width = 2; 
+                const roadName = feature.get('Name'); // Use the 'Name' attribute
+                
+                let color = '#FFFFFF'; 
+                let width = 2; 
+                let zIndex = 0;
 
+                // Assign colors and widths based on type
                 switch(roadType) {
                     case 'Highway': case 'Ramp': case 'Parkway': case 'Freeway':
-                        color = '#F7D678'; width = 5; break;
+                        color = '#F7D678'; width = 5; zIndex = 10; break;
                     case 'Arterial': case 'Road':
-                        color = '#FFFFFF'; width = 4; break;
+                        color = '#FFFFFF'; width = 4; zIndex = 5; break;
                     case 'Street': 
-                        color = '#C0C0C0'; width = 3; break;
+                        color = '#C0C0C0'; width = 3; zIndex = 1; break;
                     default:
                         color = '#FFFFFF'; width = 2; break;
                 }
 
                 const outlineWidth = width + 2; 
+
+                // 1. Black Outline style
                 const outlineStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: '#000000', width: outlineWidth, lineCap: 'round', lineJoin: 'round' }),
+                    stroke: new ol.style.Stroke({ 
+                        color: '#000000', 
+                        width: outlineWidth, 
+                        lineCap: 'round', 
+                        lineJoin: 'round' 
+                    }),
+                    zIndex: zIndex
                 });
 
+                // 2. Road Surface style
                 const surfaceStyle = new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: color, width: width, lineCap: 'round', lineJoin: 'round' }),
+                    stroke: new ol.style.Stroke({ 
+                        color: color, 
+                        width: width, 
+                        lineCap: 'round', 
+                        lineJoin: 'round' 
+                    }),
+                    zIndex: zIndex + 1
                 });
+
+                // 3. Text Label style (Google Maps style)
+                // Only render text if we are zoomed in enough (resolution < 10)
+                if (roadName && resolution < 10) {
+                    const textStyle = new ol.style.Style({
+                        text: new ol.style.Text({
+                            text: roadName,
+                            font: 'bold 12px "Open Sans", "Arial", sans-serif',
+                            placement: 'line',       // Follows the road curve
+                            maxAngle: 0.4,           // Hides label on sharp turns
+                            fill: new ol.style.Fill({ color: '#000000' }), // Black Text
+                            stroke: new ol.style.Stroke({ color: '#FFFFFF', width: 3 }), // White Halo
+                            offsetY: 0,
+                            overflow: true // Allows text to be slightly longer than the segment
+                        }),
+                        zIndex: 999 // Ensures text is on top
+                    });
+                    return [outlineStyle, surfaceStyle, textStyle];
+                }
+
                 return [outlineStyle, surfaceStyle];
             };
 
@@ -486,65 +527,6 @@
             resetButton.onclick = resetPath;
             pathControlDiv.appendChild(resetButton);
             
-            // Add separator
-            const separator = document.createElement('hr');
-            separator.style.margin = '10px 0';
-            separator.style.border = 'none';
-            separator.style.borderTop = '1px solid #ccc';
-            pathControlDiv.appendChild(separator);
-            
-            // Context Menu Toggles
-            const toggleLabel = document.createElement('p');
-            toggleLabel.textContent = 'Context Menu:';
-            toggleLabel.style.margin = '5px 0';
-            toggleLabel.style.fontSize = '12px';
-            toggleLabel.style.fontWeight = 'bold';
-            pathControlDiv.appendChild(toggleLabel);
-            
-            // Toggle state
-            window.showPathfindingItems = true;
-            window.showDefaultItems = true;
-            
-            // Pathfinding items toggle
-            const pathfindingToggleLabel = document.createElement('label');
-            pathfindingToggleLabel.style.display = 'flex';
-            pathfindingToggleLabel.style.alignItems = 'center';
-            pathfindingToggleLabel.style.margin = '5px 0';
-            pathfindingToggleLabel.style.fontSize = '12px';
-            pathfindingToggleLabel.style.cursor = 'pointer';
-            
-            const pathfindingToggle = document.createElement('input');
-            pathfindingToggle.type = 'checkbox';
-            pathfindingToggle.checked = true;
-            pathfindingToggle.style.marginRight = '5px';
-            pathfindingToggle.onchange = function() {
-                window.showPathfindingItems = this.checked;
-                updateContextMenu();
-            };
-            pathfindingToggleLabel.appendChild(pathfindingToggle);
-            pathfindingToggleLabel.appendChild(document.createTextNode('Pathfinding items'));
-            pathControlDiv.appendChild(pathfindingToggleLabel);
-            
-            // Default items toggle
-            const defaultToggleLabel = document.createElement('label');
-            defaultToggleLabel.style.display = 'flex';
-            defaultToggleLabel.style.alignItems = 'center';
-            defaultToggleLabel.style.margin = '5px 0';
-            defaultToggleLabel.style.fontSize = '12px';
-            defaultToggleLabel.style.cursor = 'pointer';
-            
-            const defaultToggle = document.createElement('input');
-            defaultToggle.type = 'checkbox';
-            defaultToggle.checked = true;
-            defaultToggle.style.marginRight = '5px';
-            defaultToggle.onchange = function() {
-                window.showDefaultItems = this.checked;
-                updateContextMenu();
-            };
-            defaultToggleLabel.appendChild(defaultToggle);
-            defaultToggleLabel.appendChild(document.createTextNode('Default items'));
-            pathControlDiv.appendChild(defaultToggleLabel);
-            
             olMap.addControl(new ol.control.Control({ element: pathControlDiv }));
 
 
@@ -608,7 +590,7 @@
             }
             
             // === Context Menu Setup ===
-            const pathfinding_menu_items = [
+            const contextmenu_items = [
                 {
                     text: 'Set as Path Start (A)',
                     classname: 'bold path-start-item',
@@ -624,43 +606,16 @@
                     callback: function(obj) {
                         handleContextSelection(obj.coordinate, 'end');
                     }
-                }
+                },
+                '-' // Separator 
             ];
             
-            // Function to update context menu based on toggle states
-            let contextmenu = null;
-            
-            function updateContextMenu() {
-                // Remove existing context menu if it exists
-                if (contextmenu) {
-                    olMap.removeControl(contextmenu);
-                }
-                
-                // Build items array based on toggles
-                const items = [];
-                
-                // Add pathfinding items if enabled
-                if (window.showPathfindingItems) {
-                    items.push(...pathfinding_menu_items);
-                }
-                
-                // Add separator if both are enabled
-                if (window.showPathfindingItems && window.showDefaultItems) {
-                    items.push('-');
-                }
-                
-                // Create new context menu with current settings
-                contextmenu = new ContextMenu({
-                    width: 180,
-                    defaultItems: window.showDefaultItems, // Show default items based on toggle
-                    items: items.length > 0 ? items : undefined // Only set items if we have custom ones
-                });
-                
-                olMap.addControl(contextmenu);
-            }
-            
-            // Initialize context menu
-            updateContextMenu();
+            const contextmenu = new ContextMenu({
+                width: 180,
+                defaultItems: false, // Only show our custom items, not default OpenLayers items
+                items: contextmenu_items
+            });
+            olMap.addControl(contextmenu);
 
             
             // 6. INITIALIZE STATUS TEXT
