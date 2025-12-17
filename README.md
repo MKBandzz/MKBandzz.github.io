@@ -2,7 +2,6 @@
 ## _Complete with Roads, POIs, and Property information_
 
 
-[![Build Status](https://travis-ci.org/joemccann/dillinger.svg?branch=master)](https://travis-ci.org/joemccann/dillinger)
 
 #### Link to map: http://mkbandzz.github.io
 
