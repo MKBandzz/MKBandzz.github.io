@@ -1,32 +1,37 @@
 // ====================================================================
-// GLOBAL ROAD GRAPH DATA STRUCTURE
+// PATHFINDING - Road Network Graph with Direction & Level Rules
+// ====================================================================
+// Graph respects: Path (B/BE/EB), Level connectivity (|Δlevel| ≤ 1)
+// Cost = distance/speed (time-based routing)
 // ====================================================================
 
-/**
- * Stores the road network as an adjacency list.
- * Key: Node ID string "x,z"
- * Value: Object { 
- * x: number, // Rounded integer coordinate (for matching node ID)
- * z: number, // Rounded integer coordinate (for matching node ID)
- * neighbors: Array<{
- * id: string, 
- * cost: number, 
- * distance: number 
- * }> 
- * }
- */
 let roadGraph = {};
 
-
-// ====================================================================
-// CORE UTILITY FUNCTIONS
-// ====================================================================
+/**
+ * Parse level from feature properties. Handles "0", "1", "-1", "NA", null.
+ * @returns {number} Numeric level (default 0)
+ */
+function parseLevel(props) {
+    const val = props?.Level ?? props?.level;
+    if (val === null || val === undefined || val === 'NA') return 0;
+    const n = parseInt(val, 10);
+    return isNaN(n) ? 0 : n;
+}
 
 /**
- * Calculates the Euclidean (straight-line) distance between two 2D coordinates [x, z].
- * @param {Array<number>} coord1 - [x, z] coordinates of the first point.
- * @param {Array<number>} coord2 - [x, z] coordinates of the second point.
- * @returns {number} The straight-line distance in blocks.
+ * Parse Path attribute: B=both, BE=forward, EB=backward.
+ * @returns {{forward: boolean, backward: boolean}}
+ */
+function parsePath(props) {
+    const path = (props?.Path ?? props?.oneway ?? 'B').toString().toUpperCase();
+    return {
+        forward: path === 'B' || path === 'BE',
+        backward: path === 'B' || path === 'EB'
+    };
+}
+
+/**
+ * Euclidean distance between [x,z] coordinates.
  */
 function calculateDistance(coord1, coord2) {
     const dx = coord1[0] - coord2[0];
@@ -35,191 +40,168 @@ function calculateDistance(coord1, coord2) {
 }
 
 /**
- * Finds the nearest road node to a given click coordinate.
- * This is the function responsible for converting a click into a usable node ID.
- * @param {Array<number>} targetCoord - [x, z] coordinates of the clicked location (Minecraft blocks, high-precision float).
- * @returns {string|null} The ID of the nearest node (e.g., "123,456") or null.
+ * Check if two levels can connect: |level1 - level2| ≤ 1
  */
-function findNearestNode(targetCoord) {
-    // *** FIX: Increased Search Radius to 30 Blocks for more forgiving clicks ***
-    const MAX_DISTANCE = 30; // Search radius in blocks
-    let nearestNodeId = null;
-    let minDistance = Infinity;
-    
-    // --- DEBUG: Log the received target coordinate ---
-    console.log(`findNearestNode called with target: [${targetCoord[0].toFixed(3)}, ${targetCoord[1].toFixed(3)}]`);
-
-    // Iterate over all nodes in the road graph
-    for (const nodeId in roadGraph) {
-        const node = roadGraph[nodeId];
-        
-        // Node coordinates are the rounded integer coordinates from buildRoadGraph
-        const nodeCoord = [node.x, node.z]; 
-
-        // Calculate distance between the precise click coordinate and the integer node coordinate
-        const distance = calculateDistance(nodeCoord, targetCoord);
-
-        if (distance < minDistance && distance <= MAX_DISTANCE) {
-            minDistance = distance;
-            nearestNodeId = nodeId;
-        }
-    }
-    
-    // --- FINAL DEBUG: Log the result ---
-    if (nearestNodeId) {
-        console.log(`Success: Nearest node found: ${nearestNodeId} (Distance: ${minDistance.toFixed(3)})`);
-    } else {
-        console.log(`Failure: No road node found within ${MAX_DISTANCE} blocks.`);
-    }
-
-    return nearestNodeId;
+function levelsCanConnect(level1, level2) {
+    return Math.abs(level1 - level2) <= 1;
 }
 
+/**
+ * Add directed edge to graph.
+ */
+function addEdge(graph, fromId, toId, level, cost, fromCoord, toCoord) {
+    if (!graph[fromId]) {
+        graph[fromId] = { x: fromCoord[0], z: fromCoord[1], edges: [] };
+    }
+    graph[fromId].edges.push({ toId, level, cost });
+}
 
 /**
- * Builds the road network graph from GeoJSON features.
- * Features are guaranteed by index.html to be in raw Minecraft block [X, Z] coordinates.
- * @param {Array<ol.Feature>} features - OpenLayers features from roads.geojson.
+ * Build road graph from GeoJSON features.
+ * Uses RAW [X, Z] block coordinates (before display inversion).
+ * @param {Array} features - GeoJSON features with geometry.coordinates
  */
 function buildRoadGraph(features) {
-    console.log("Building road graph...");
-    roadGraph = {}; 
-    
+    roadGraph = {};
+
     features.forEach(feature => {
-        const geometry = feature.getGeometry();
-        if (geometry.getType() === 'LineString') {
-            // Coords are [X, Z] (Minecraft blocks)
-            const coords = geometry.getCoordinates(); 
+        const geom = feature.geometry;
+        if (!geom || geom.type !== 'LineString' || !geom.coordinates?.length) return;
 
-            for (let i = 0; i < coords.length - 1; i++) {
-                const startCoord = coords[i];
-                const endCoord = coords[i+1];
+        const coords = geom.coordinates;
+        const props = feature.properties || {};
+        const path = parsePath(props);
+        const level = parseLevel(props);
+        const speed = Math.max(1, parseFloat(props?.speed ?? props?.Speed ?? 50));
 
-                // Node IDs are based on the rounded integer coordinates
-                const startNodeId = `${Math.round(startCoord[0])},${Math.round(startCoord[1])}`;
-                const endNodeId = `${Math.round(endCoord[0])},${Math.round(endCoord[1])}`;
-                
-                // Calculate segment distance and cost
-                const dist = calculateDistance(startCoord, endCoord);
-                const cost = dist; 
+        for (let i = 0; i < coords.length - 1; i++) {
+            const start = coords[i];
+            const end = coords[i + 1];
+            const dist = calculateDistance(start, end);
+            const cost = dist / speed; // time-based cost
 
-                // --- Node Initialization ---
-                if (!roadGraph[startNodeId]) {
-                    // Store the rounded integer coordinates for quick access and consistent node ID matching
-                    roadGraph[startNodeId] = { 
-                        x: Math.round(startCoord[0]), 
-                        z: Math.round(startCoord[1]), 
-                        neighbors: [] 
-                    };
-                }
-                if (!roadGraph[endNodeId]) {
-                    // Store the rounded integer coordinates for quick access
-                    roadGraph[endNodeId] = { 
-                        x: Math.round(endCoord[0]), 
-                        z: Math.round(endCoord[1]), 
-                        neighbors: [] 
-                    };
-                }
+            const startId = `${Math.round(start[0])},${Math.round(start[1])}`;
+            const endId = `${Math.round(end[0])},${Math.round(end[1])}`;
 
-                // Add neighbors (bidirectional graph for roads)
-                if (startNodeId !== endNodeId) {
-                    const startHasEnd = roadGraph[startNodeId].neighbors.some(n => n.id === endNodeId);
-                    if (!startHasEnd) {
-                        roadGraph[startNodeId].neighbors.push({ id: endNodeId, cost: cost, distance: dist });
-                    }
-                    
-                    const endHasStart = roadGraph[endNodeId].neighbors.some(n => n.id === startNodeId);
-                    if (!endHasStart) {
-                        roadGraph[endNodeId].neighbors.push({ id: startNodeId, cost: cost, distance: dist });
-                    }
-                }
+            if (path.forward) {
+                addEdge(roadGraph, startId, endId, level, cost, start, end);
+            }
+            if (path.backward) {
+                addEdge(roadGraph, endId, startId, level, cost, end, start);
             }
         }
     });
 
-    console.log(`Road graph built with ${Object.keys(roadGraph).length} nodes.`);
+    console.log(`Road graph built: ${Object.keys(roadGraph).length} nodes`);
 }
 
 /**
- * Reconstructs the path from the cameFrom map.
+ * Find nearest road node to a click coordinate within max blocks.
+ * @param {Array<number>} targetCoord - [x, z] in block coords
+ * @returns {string|null} Node ID "x,z" or null
  */
-function reconstructPath(cameFrom, currentId) {
-    const path = [];
-    while (currentId) {
-        const node = roadGraph[currentId];
-        path.push([node.x, node.z]);
-        currentId = cameFrom[currentId];
+function findNearestNode(targetCoord) {
+    const MAX_DISTANCE = 30;
+    let nearestId = null;
+    let minDist = Infinity;
+
+    for (const nodeId in roadGraph) {
+        const node = roadGraph[nodeId];
+        const dist = calculateDistance([node.x, node.z], targetCoord);
+        if (dist < minDist && dist <= MAX_DISTANCE) {
+            minDist = dist;
+            nearestId = nodeId;
+        }
     }
-    return path.reverse();
+    return nearestId;
 }
 
 /**
- * Finds the shortest path between two road nodes using the A* algorithm.
+ * A* pathfinding with level connectivity.
+ * State: (nodeId, level) - can only traverse to edge if |edgeLevel - currentLevel| ≤ 1
  */
 function calculatePath(startNodeId, endNodeId) {
     if (!roadGraph[startNodeId] || !roadGraph[endNodeId]) {
-        return { path: [], totalCost: 0, distance: 0, message: "Error: Start or end node not found in the road graph." };
+        return { path: [], totalCost: 0, distance: 0, message: 'Start or end node not found.' };
     }
 
-    const cameFrom = {}; 
-    const gScore = {}; 
-    gScore[startNodeId] = 0;
-    
-    const fScore = {};
     const endNode = roadGraph[endNodeId];
-    const endCoord = [endNode.x, endNode.z]; 
-    fScore[startNodeId] = calculateDistance([roadGraph[startNodeId].x, roadGraph[startNodeId].z], endCoord);
+    const endCoord = [endNode.x, endNode.z];
 
-    const openSet = [{ id: startNodeId, fScore: fScore[startNodeId] }];
+    function heuristic(nodeId) {
+        const n = roadGraph[nodeId];
+        return n ? calculateDistance([n.x, n.z], endCoord) / 80 : 0; // rough time estimate
+    }
+
+    // Frontier: { nodeId, level, gScore, fScore }
+    const openSet = [];
+    const gScore = {};  // key: "nodeId,level" -> cost
+    const cameFrom = {}; // key: "nodeId,level" -> { nodeId, level }
+    const visited = new Set();
+
+    // Start: can enter at any level of edges FROM start (outgoing)
+    const startEdges = roadGraph[startNodeId].edges;
+    const startLevels = [...new Set(startEdges.map(e => e.level))];
+    if (startLevels.length === 0) {
+        return { path: [], totalCost: 0, distance: 0, message: 'Start node has no outgoing edges.' };
+    }
+
+    for (const level of startLevels) {
+        const key = `${startNodeId},${level}`;
+        gScore[key] = 0;
+        openSet.push({ nodeId: startNodeId, level, gScore: 0, fScore: heuristic(startNodeId) });
+    }
 
     while (openSet.length > 0) {
-        
         openSet.sort((a, b) => a.fScore - b.fScore);
-        const current = openSet.shift(); 
-        const currentId = current.id;
+        const current = openSet.shift();
+        const { nodeId, level, gScore: g } = current;
+        const key = `${nodeId},${level}`;
 
-        if (currentId === endNodeId) {
-            const finalPath = reconstructPath(cameFrom, currentId);
-            let totalDistance = 0;
-            
-            // Calculate actual distance in blocks
-            for(let i = 0; i < finalPath.length - 1; i++) {
-                totalDistance += calculateDistance(finalPath[i], finalPath[i+1]);
+        if (visited.has(key)) continue;
+        visited.add(key);
+
+        if (nodeId === endNodeId) {
+            // Reconstruct path
+            const path = [];
+            let cur = { nodeId, level };
+            while (cur) {
+                const node = roadGraph[cur.nodeId];
+                path.push([node.x, node.z]);
+                cur = cameFrom[`${cur.nodeId},${cur.level}`];
+            }
+            path.reverse();
+
+            let totalDist = 0;
+            for (let i = 0; i < path.length - 1; i++) {
+                totalDist += calculateDistance(path[i], path[i + 1]);
             }
 
-            return { 
-                path: finalPath, 
-                totalCost: gScore[endNodeId], 
-                distance: totalDistance, 
-                message: "Route found." 
+            return {
+                path,
+                totalCost: g,
+                distance: totalDist,
+                message: 'Route found.'
             };
         }
 
-        const currentNode = roadGraph[currentId];
-        
-        for (const neighbor of currentNode.neighbors) {
-            const tentativeGScore = gScore[currentId] + neighbor.cost;
-            const neighborId = neighbor.id;
+        const node = roadGraph[nodeId];
+        for (const edge of node.edges) {
+            if (!levelsCanConnect(level, edge.level)) continue;
 
-            if (tentativeGScore < (gScore[neighborId] || Infinity)) {
-                
-                cameFrom[neighborId] = currentId;
-                gScore[neighborId] = tentativeGScore;
+            const tentativeG = g + edge.cost;
+            const edgeKey = `${edge.toId},${edge.level}`;
 
-                const neighborCoord = [roadGraph[neighborId].x, roadGraph[neighborId].z];
-                const heuristic = calculateDistance(neighborCoord, endCoord);
-                
-                fScore[neighborId] = tentativeGScore + heuristic;
-                
-                const existing = openSet.find(item => item.id === neighborId);
-                if (!existing) {
-                    openSet.push({ id: neighborId, fScore: fScore[neighborId] });
-                } else {
-                    existing.fScore = fScore[neighborId];
-                }
-            }
+            if (visited.has(edgeKey)) continue;
+            const prevG = gScore[edgeKey];
+            if (prevG !== undefined && tentativeG >= prevG) continue;
+
+            cameFrom[edgeKey] = { nodeId, level };
+            gScore[edgeKey] = tentativeG;
+            const f = tentativeG + heuristic(edge.toId);
+            openSet.push({ nodeId: edge.toId, level: edge.level, gScore: tentativeG, fScore: f });
         }
     }
 
-    return { path: [], totalCost: 0, distance: 0, message: "Error: Could not find a path between the selected points." };
+    return { path: [], totalCost: 0, distance: 0, message: 'No path found.' };
 }
