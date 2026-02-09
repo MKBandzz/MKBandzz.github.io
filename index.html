@@ -104,31 +104,6 @@
             margin-top: 3px;
         }
 
-        /* Pathfinding UI */
-        .ol-control.path-control {
-            top: 6.5em;
-            right: .5em;
-            background-color: rgba(255, 255, 255, 0.95);
-            padding: 8px 12px;
-            border-radius: 4px;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-            z-index: 2000;
-            font-size: 14px;
-            min-width: 180px;
-        }
-        .path-control button {
-            display: block;
-            width: 100%;
-            margin-top: 6px;
-            padding: 6px;
-            cursor: pointer;
-            font-size: 13px;
-        }
-        #path-status {
-            font-weight: bold;
-            margin: 4px 0;
-            min-height: 2.5em;
-        }
         
     </style>
 
@@ -144,73 +119,6 @@
 
     <script type="text/javascript">
         
-        window.pathStartId = null;
-        window.pathEndId = null;
-
-        function nodeIdToCoord(nodeId) {
-            return nodeId ? nodeId.split(',').map(Number) : null;
-        }
-
-        function drawPathMarkers(olMap, dataProjection, viewProjection) {
-            window.pathMarkerLayer.getSource().clear();
-            const startCoord = nodeIdToCoord(window.pathStartId);
-            const endCoord = nodeIdToCoord(window.pathEndId);
-
-            if (startCoord) {
-                const feat = new ol.Feature({ geometry: new ol.geom.Point(ol.proj.transform(startCoord, dataProjection, viewProjection)) });
-                feat.setStyle(new ol.style.Style({
-                    image: new ol.style.Circle({ radius: 10, fill: new ol.style.Fill({ color: 'rgba(76, 175, 80, 0.9)' }), stroke: new ol.style.Stroke({ color: '#fff', width: 3 }) }),
-                    text: new ol.style.Text({ text: 'A', font: 'bold 12px sans-serif', offsetY: 20, fill: new ol.style.Fill({ color: 'green' }) })
-                }));
-                window.pathMarkerLayer.getSource().addFeature(feat);
-            }
-            if (endCoord) {
-                const feat = new ol.Feature({ geometry: new ol.geom.Point(ol.proj.transform(endCoord, dataProjection, viewProjection)) });
-                feat.setStyle(new ol.style.Style({
-                    image: new ol.style.Circle({ radius: 10, fill: new ol.style.Fill({ color: 'rgba(244, 67, 54, 0.9)' }), stroke: new ol.style.Stroke({ color: '#fff', width: 3 }) }),
-                    text: new ol.style.Text({ text: 'B', font: 'bold 12px sans-serif', offsetY: 20, fill: new ol.style.Fill({ color: 'red' }) })
-                }));
-                window.pathMarkerLayer.getSource().addFeature(feat);
-            }
-        }
-
-        function resetPath() {
-            window.pathStartId = null;
-            window.pathEndId = null;
-            if (window.pathMarkerLayer) window.pathMarkerLayer.getSource().clear();
-            if (window.pathLineLayer) window.pathLineLayer.getSource().clear();
-            document.getElementById('path-status').textContent = 'Right-click map to set Start (A), then End (B).';
-        }
-
-        function handleCalculatePath(olMap, dataProjection, viewProjection) {
-            window.pathLineLayer.getSource().clear();
-            const statusEl = document.getElementById('path-status');
-            statusEl.textContent = 'Calculating...';
-
-            const result = calculatePath(window.pathStartId, window.pathEndId);
-
-            if (result.path && result.path.length > 0) {
-                const transformed = result.path.map(c => ol.proj.transform(c, dataProjection, viewProjection));
-                const feat = new ol.Feature({ geometry: new ol.geom.LineString(transformed) });
-                feat.setStyle(new ol.style.Style({ stroke: new ol.style.Stroke({ color: '#2196F3', width: 8 }) }));
-                window.pathLineLayer.getSource().addFeature(feat);
-                statusEl.innerHTML = `Route found<br><b>${result.distance.toFixed(0)} blocks</b> · ~${result.totalCost.toFixed(1)} time units`;
-            } else {
-                statusEl.textContent = result.message || 'No route found.';
-            }
-        }
-
-        function updatePathStatus() {
-            const el = document.getElementById('path-status');
-            if (window.pathStartId && window.pathEndId) {
-                el.textContent = `A: ${window.pathStartId} → B: ${window.pathEndId}. Click Calculate Route.`;
-            } else if (window.pathStartId) {
-                el.textContent = `Start (A) set. Right-click to set End (B).`;
-            } else {
-                el.textContent = 'Right-click map to set Start (A), then End (B).';
-            }
-        }
-
         window.onload = function() {
 
             // 1. STANDARD uNmINeD INITIALIZATION LOGIC
@@ -236,11 +144,6 @@
             const viewProjection = unmined.viewProjection; // OpenLayers [X, -Y] space (used for display)
 
             if (!olMap || !dataProjection || !viewProjection) { console.error("CRITICAL FAILURE: Map or projection objects are missing."); return; }
-
-            window.pathMarkerLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Path Markers', zIndex: 3000 });
-            olMap.addLayer(window.pathMarkerLayer);
-            window.pathLineLayer = new ol.layer.Vector({ source: new ol.source.Vector(), title: 'Calculated Path', zIndex: 2500 });
-            olMap.addLayer(window.pathLineLayer);
 
             // 3. VECTOR LAYER SETUP UTILITY WITH COORDINATE NEGATION FIX
             
@@ -392,47 +295,6 @@
             poiLayer.set('title', 'Properties/POIs');
             olMap.addLayer(poiLayer);
 
-            // Pathfinding UI
-            const pathDiv = document.createElement('div');
-            pathDiv.className = 'ol-control ol-unselectable path-control';
-            pathDiv.innerHTML = '<p id="path-status">Right-click map to set Start (A), then End (B).</p><button type="button">Calculate Route</button><button type="button">Reset</button>';
-            pathDiv.querySelectorAll('button')[0].onclick = () => {
-                if (window.pathStartId && window.pathEndId) {
-                    handleCalculatePath(olMap, dataProjection, viewProjection);
-                } else {
-                    Toastify({ text: 'Set Start (A) and End (B) by right-clicking the map.', duration: 4000, gravity: 'top', position: 'center', style: { background: '#e53935' } }).showToast();
-                }
-            };
-            pathDiv.querySelectorAll('button')[1].onclick = resetPath;
-            olMap.addControl(new ol.control.Control({ element: pathDiv }));
-
-            // Context menu for path points
-            const contextItems = [
-                { text: 'Set as Start (A)', classname: 'bold', callback: (obj) => handlePathPoint(obj.coordinate, 'start') },
-                { text: 'Set as End (B)', classname: 'bold', callback: (obj) => handlePathPoint(obj.coordinate, 'end') },
-                '-'
-            ];
-            function handlePathPoint(viewCoord, type) {
-                const blockCoord = ol.proj.transform(viewCoord, viewProjection, dataProjection);
-                const nodeId = findNearestNode(blockCoord);
-                if (nodeId) {
-                    if (type === 'start') window.pathStartId = nodeId;
-                    else {
-                        if (!window.pathStartId) {
-                            Toastify({ text: 'Set Start (A) first.', duration: 3000, gravity: 'top', position: 'center', style: { background: '#ff9800' } }).showToast();
-                            return;
-                        }
-                        window.pathEndId = nodeId;
-                    }
-                    drawPathMarkers(olMap, dataProjection, viewProjection);
-                    updatePathStatus();
-                    window.pathLineLayer.getSource().clear();
-                } else {
-                    Toastify({ text: 'No road within 30 blocks. Click closer to a road.', duration: 4000, gravity: 'top', position: 'center', style: { background: '#e53935' } }).showToast();
-                }
-            }
-            olMap.addControl(new ContextMenu({ width: 180, defaultItems: false, items: contextItems }));
-            
             // 4. Single-Click Handler (Handles Popups)
             
             const container = document.getElementById('popup');
@@ -464,7 +326,6 @@
                 // Use forEachFeatureAtPixel with hit tolerance for better detection
                 olMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
                     const layerTitle = layer ? layer.get('title') : null;
-                    if (layerTitle === 'Path Markers' || layerTitle === 'Calculated Path') return;
                     // Check for roads or properties
                     if (layerTitle === 'Roads Network' || layerTitle === 'Properties/POIs') {
                         clickedFeature = feature;
@@ -522,8 +383,6 @@
                     overlay.setPosition(undefined);
                 }
             });
-
-            updatePathStatus();
 
         }; // End of window.onload
     </script>
