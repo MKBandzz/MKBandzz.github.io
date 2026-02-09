@@ -59,17 +59,36 @@ function addEdge(graph, fromId, toId, level, cost, fromCoord, toCoord) {
 /**
  * Build road graph from GeoJSON features.
  * Uses RAW [X, Z] block coordinates (before display inversion).
- * @param {Array} features - GeoJSON features with geometry.coordinates
+ * Accepts either raw GeoJSON features ({ geometry, properties }) or OpenLayers Feature instances.
+ * @param {Array} features - GeoJSON features or ol.Feature[] with geometry.coordinates
  */
 function buildRoadGraph(features) {
     roadGraph = {};
 
-    features.forEach(feature => {
-        const geom = feature.geometry;
-        if (!geom || geom.type !== 'LineString' || !geom.coordinates?.length) return;
+    if (!features || !Array.isArray(features)) return;
 
-        const coords = geom.coordinates;
-        const props = feature.properties || {};
+    features.forEach(feature => {
+        if (!feature || (typeof feature !== 'object')) return;
+        // Support both raw GeoJSON (feature.geometry) and OpenLayers (feature.getGeometry())
+        const geom = typeof feature.getGeometry === 'function' ? feature.getGeometry() : feature.geometry;
+        if (!geom) return;
+
+        const type = typeof geom.getType === 'function' ? geom.getType() : geom.type;
+        if (type !== 'LineString') return;
+
+        const coords = typeof geom.getCoordinates === 'function' ? geom.getCoordinates() : geom.coordinates;
+        if (!coords || coords.length < 2) return;
+
+        // Properties: raw GeoJSON has feature.properties; OpenLayers has feature.get(name)
+        let props = {};
+        if (feature.properties && typeof feature.properties === 'object') {
+            props = feature.properties;
+        } else if (typeof feature.get === 'function') {
+            ['Path', 'path', 'oneway', 'Level', 'level', 'Speed', 'speed', 'Length', 'length'].forEach(k => {
+                const v = feature.get(k);
+                if (v !== undefined) props[k] = v;
+            });
+        }
         const path = parsePath(props);
         const level = parseLevel(props);
         const speed = Math.max(1, parseFloat(props?.speed ?? props?.Speed ?? 50));
