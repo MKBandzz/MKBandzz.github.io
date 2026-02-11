@@ -779,7 +779,6 @@ class Unmined {
                     this.pathStartCoordinates = coordinates;
                     this.clearPathVisualization();
                     Unmined.toast(`Path Start (A) set to: ${formattedCoords}`);
-                    this.calculateAndRenderPath();
                 }
             });
 
@@ -790,6 +789,17 @@ class Unmined {
                     this.pathEndCoordinates = coordinates;
                     this.clearPathVisualization();
                     Unmined.toast(`Path End (B) set to: ${formattedCoords}`);
+                }
+            });
+
+            // Find Fastest Route (only runs if both points are set)
+            contextmenu.push({
+                text: 'Find Fastest Route',
+                callback: () => {
+                    if (!this.pathStartCoordinates || !this.pathEndCoordinates) {
+                        Unmined.toast('Set both Path Start and End first');
+                        return;
+                    }
                     this.calculateAndRenderPath();
                 }
             });
