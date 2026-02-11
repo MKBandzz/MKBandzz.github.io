@@ -84,11 +84,15 @@ function buildRoadGraph(features) {
         if (feature.properties && typeof feature.properties === 'object') {
             props = feature.properties;
         } else if (typeof feature.get === 'function') {
-            ['Path', 'path', 'oneway', 'Level', 'level', 'Speed', 'speed', 'Length', 'length'].forEach(k => {
+            ['Path', 'path', 'oneway', 'Level', 'level', 'Speed', 'speed', 'Length', 'length', 'Type', 'type'].forEach(k => {
                 const v = feature.get(k);
                 if (v !== undefined) props[k] = v;
             });
         }
+        // Exclude Walkway / Walkways from pathfinding
+        const roadType = (props?.Type ?? props?.type ?? '').toString().toLowerCase();
+        if (roadType === 'walkway' || roadType === 'walkways') return;
+
         const path = parsePath(props);
         const level = parseLevel(props);
         const speed = Math.max(1, parseFloat(props?.speed ?? props?.Speed ?? 50));

@@ -372,9 +372,14 @@ class Unmined {
         this.hidePathInfoPanel();
     }
 
-    // Transform block [x,z] to view coords; negate Z so path aligns with roads layer (which uses inverted Z for display)
+    // Transform block [x,z] to view coords; negate Z so path line aligns with roads layer (which uses inverted Z for display)
     pathBlockToView(coord) {
         return ol.proj.transform([coord[0], -coord[1]], this.dataProjection, this.viewProjection);
+    }
+
+    // Transform block [x,z] to view for A/B markers only; no negation so markers match the coordinate display where you clicked
+    pathBlockToViewMarker(coord) {
+        return ol.proj.transform([coord[0], coord[1]], this.dataProjection, this.viewProjection);
     }
 
     drawPath(blockCoords) {
@@ -403,11 +408,11 @@ class Unmined {
 
     updatePathMarkers() {
         if (!this.pathLayerSource) return;
-        const toView = (c) => this.pathBlockToView(c);
+        const toViewMarker = (c) => this.pathBlockToViewMarker(c);
 
         if (this.pathStartCoordinates) {
             const startFeature = new ol.Feature({
-                geometry: new ol.geom.Point(toView(this.pathStartCoordinates))
+                geometry: new ol.geom.Point(toViewMarker(this.pathStartCoordinates))
             });
             startFeature.setStyle(new ol.style.Style({
                 image: new ol.style.Circle({
@@ -427,7 +432,7 @@ class Unmined {
         }
         if (this.pathEndCoordinates) {
             const endFeature = new ol.Feature({
-                geometry: new ol.geom.Point(toView(this.pathEndCoordinates))
+                geometry: new ol.geom.Point(toViewMarker(this.pathEndCoordinates))
             });
             endFeature.setStyle(new ol.style.Style({
                 image: new ol.style.Circle({
