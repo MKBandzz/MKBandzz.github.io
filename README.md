@@ -28,6 +28,12 @@ MKB Map is powered by UnMiNeD, and uses GeoJSON files overlayed on top of the ma
 Updates to the map layer are typically done every month
 
 
+_2.2 (2-11-26)_
+
+-Pathfinding now works for short distances
+
+-Updated Map Tiles
+
 _Version 2.1.1 (12-16-2025)_
 
 -Pathfinding currently freezes after points set - experimental
