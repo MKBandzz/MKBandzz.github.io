@@ -104,6 +104,39 @@
             margin-top: 3px;
         }
 
+        /* Path info panel (right side, closable) */
+        #path-info-panel {
+            display: none;
+            position: fixed;
+            top: 50%;
+            right: 12px;
+            transform: translateY(-50%);
+            width: 200px;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+            padding: 12px 14px;
+            z-index: 2000;
+            font-size: 14px;
+        }
+        #path-info-panel .path-info-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        #path-info-panel .path-info-closer {
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            color: #666;
+            text-decoration: none;
+        }
+        #path-info-panel .path-info-closer:hover { color: #333; }
+        #path-info-panel .path-info-content { font-size: 16px; font-weight: bold; color: #1976d2; }
+        #path-info-panel .path-info-message { color: #333; margin-top: 4px; }
         
     </style>
 
@@ -111,6 +144,15 @@
 
 <body>
     <div id="map"></div>
+
+    <div id="path-info-panel">
+        <div class="path-info-header">
+            <span>Route</span>
+            <a href="#" class="path-info-closer" id="path-info-closer" aria-label="Close">×</a>
+        </div>
+        <div class="path-info-content"></div>
+        <div class="path-info-message"></div>
+    </div>
     
     <div id="popup">
         <a href="#" id="popup-closer" class="popup-closer"></a>
@@ -136,6 +178,14 @@
             if (!mapElement) { console.error("CRITICAL FAILURE: Map element with id='map' not found."); return; }
             
             const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
+
+            const pathInfoCloser = document.getElementById('path-info-closer');
+            if (pathInfoCloser) {
+                pathInfoCloser.onclick = function() {
+                    document.getElementById('path-info-panel').style.display = 'none';
+                    return false;
+                };
+            }
             
             // 2. Accessing Map and Projections
 

@@ -367,51 +367,84 @@ class Unmined {
     clearPathVisualization() {
         if (this.pathLayerSource) {
             this.pathLayerSource.clear();
+            this.updatePathMarkers();
         }
+        this.hidePathInfoPanel();
+    }
+
+    // Transform block [x,z] to view coords; negate Z so path aligns with roads layer (which uses inverted Z for display)
+    pathBlockToView(coord) {
+        return ol.proj.transform([coord[0], -coord[1]], this.dataProjection, this.viewProjection);
     }
 
     drawPath(blockCoords) {
-        if (!this.pathLayerSource || !blockCoords || blockCoords.length === 0) return;
+        if (!this.pathLayerSource) return;
 
         this.clearPathVisualization();
+        const toView = (c) => this.pathBlockToView(c);
 
-        const toView = (coord) => ol.proj.transform([coord[0], coord[1]], this.dataProjection, this.viewProjection);
+        if (blockCoords && blockCoords.length >= 2) {
+            const lineFeature = new ol.Feature({
+                geometry: new ol.geom.LineString(blockCoords.map(toView))
+            });
+            lineFeature.setStyle(new ol.style.Style({
+                stroke: new ol.style.Stroke({
+                    color: '#00c2ff',
+                    width: 5,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                })
+            }));
+            this.pathLayerSource.addFeature(lineFeature);
+        }
 
-        const lineFeature = new ol.Feature({
-            geometry: new ol.geom.LineString(blockCoords.map(toView))
-        });
-        lineFeature.setStyle(new ol.style.Style({
-            stroke: new ol.style.Stroke({
-                color: '#00c2ff',
-                width: 5,
-                lineCap: 'round',
-                lineJoin: 'round'
-            })
-        }));
+        this.updatePathMarkers();
+    }
 
-        const startFeature = new ol.Feature({
-            geometry: new ol.geom.Point(toView(blockCoords[0]))
-        });
-        startFeature.setStyle(new ol.style.Style({
-            image: new ol.style.Circle({
-                radius: 6,
-                fill: new ol.style.Fill({ color: '#3cb371' }),
-                stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 })
-            })
-        }));
+    updatePathMarkers() {
+        if (!this.pathLayerSource) return;
+        const toView = (c) => this.pathBlockToView(c);
 
-        const endFeature = new ol.Feature({
-            geometry: new ol.geom.Point(toView(blockCoords[blockCoords.length - 1]))
-        });
-        endFeature.setStyle(new ol.style.Style({
-            image: new ol.style.Circle({
-                radius: 6,
-                fill: new ol.style.Fill({ color: '#ff5a5f' }),
-                stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 })
-            })
-        }));
-
-        this.pathLayerSource.addFeatures([lineFeature, startFeature, endFeature]);
+        if (this.pathStartCoordinates) {
+            const startFeature = new ol.Feature({
+                geometry: new ol.geom.Point(toView(this.pathStartCoordinates))
+            });
+            startFeature.setStyle(new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: 8,
+                    fill: new ol.style.Fill({ color: '#3cb371' }),
+                    stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 })
+                }),
+                text: new ol.style.Text({
+                    text: 'A',
+                    font: 'bold 12px sans-serif',
+                    offsetY: -14,
+                    fill: new ol.style.Fill({ color: '#2e7d32' }),
+                    stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+                })
+            }));
+            this.pathLayerSource.addFeature(startFeature);
+        }
+        if (this.pathEndCoordinates) {
+            const endFeature = new ol.Feature({
+                geometry: new ol.geom.Point(toView(this.pathEndCoordinates))
+            });
+            endFeature.setStyle(new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: 8,
+                    fill: new ol.style.Fill({ color: '#ff5a5f' }),
+                    stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 })
+                }),
+                text: new ol.style.Text({
+                    text: 'B',
+                    font: 'bold 12px sans-serif',
+                    offsetY: -14,
+                    fill: new ol.style.Fill({ color: '#c62828' }),
+                    stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+                })
+            }));
+            this.pathLayerSource.addFeature(endFeature);
+        }
     }
 
     calculateAndRenderPath() {
@@ -446,8 +479,23 @@ class Unmined {
 
         this.drawPath(result.path);
 
-        const distanceText = result.distance ? ` (${result.distance.toFixed(0)} blocks)` : '';
-        Unmined.toast((result.message || 'Route found') + distanceText);
+        const distanceText = result.distance != null ? `${result.distance.toFixed(0)} blocks` : '';
+        this.showPathInfoPanel(distanceText, result.message || 'Route found');
+    }
+
+    showPathInfoPanel(distanceText, message) {
+        const panel = document.getElementById('path-info-panel');
+        if (!panel) return;
+        const content = panel.querySelector('.path-info-content');
+        const msgEl = panel.querySelector('.path-info-message');
+        if (content) content.textContent = distanceText || '';
+        if (msgEl) msgEl.textContent = message || '';
+        panel.style.display = 'block';
+    }
+
+    hidePathInfoPanel() {
+        const panel = document.getElementById('path-info-panel');
+        if (panel) panel.style.display = 'none';
     }
 
     createMarkersLayer(markers) {
@@ -721,7 +769,8 @@ class Unmined {
                 text: `Set Path Start (${formatPointDisplay(this.pathStartCoordinates)})`,
                 callback: () => {
                     this.pathStartCoordinates = coordinates;
-                    Unmined.toast(`Path Start set to: ${formattedCoords}`);
+                    this.clearPathVisualization();
+                    Unmined.toast(`Path Start (A) set to: ${formattedCoords}`);
                     this.calculateAndRenderPath();
                 }
             });
@@ -731,7 +780,8 @@ class Unmined {
                 text: `Set Path End (${formatPointDisplay(this.pathEndCoordinates)})`,
                 callback: () => {
                     this.pathEndCoordinates = coordinates;
-                    Unmined.toast(`Path End set to: ${formattedCoords}`);
+                    this.clearPathVisualization();
+                    Unmined.toast(`Path End (B) set to: ${formattedCoords}`);
                     this.calculateAndRenderPath();
                 }
             });
