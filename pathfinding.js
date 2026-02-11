@@ -6,6 +6,7 @@
 // ====================================================================
 
 let roadGraph = {};
+let roadSegments = []; // for segment-based nearest selection
 
 /**
  * Parse level from feature properties. Handles "0", "1", "-1", "NA", null.
@@ -48,10 +49,14 @@ function levelsCanConnect(level1, level2) {
 
 /**
  * Add directed edge to graph.
+ * Ensures BOTH endpoints exist as nodes so we can safely expand from any nodeId we encounter.
  */
 function addEdge(graph, fromId, toId, level, cost, fromCoord, toCoord) {
     if (!graph[fromId]) {
         graph[fromId] = { x: fromCoord[0], z: fromCoord[1], edges: [] };
+    }
+    if (!graph[toId]) {
+        graph[toId] = { x: toCoord[0], z: toCoord[1], edges: [] };
     }
     graph[fromId].edges.push({ toId, level, cost });
 }
@@ -64,6 +69,7 @@ function addEdge(graph, fromId, toId, level, cost, fromCoord, toCoord) {
  */
 function buildRoadGraph(features) {
     roadGraph = {};
+    roadSegments = [];
 
     if (!features || !Array.isArray(features)) return;
 
@@ -106,6 +112,15 @@ function buildRoadGraph(features) {
             const startId = `${Math.round(start[0])},${Math.round(start[1])}`;
             const endId = `${Math.round(end[0])},${Math.round(end[1])}`;
 
+            // Store segment for later nearest-segment queries
+            roadSegments.push({
+                start,
+                end,
+                startId,
+                endId,
+                roadType
+            });
+
             if (path.forward) {
                 addEdge(roadGraph, startId, endId, level, cost, start, end);
             }
@@ -119,12 +134,72 @@ function buildRoadGraph(features) {
 }
 
 /**
+ * Distance from point P to segment AB.
+ */
+function pointToSegmentDistance(p, a, b) {
+    const vx = b[0] - a[0];
+    const vz = b[1] - a[1];
+    const wx = p[0] - a[0];
+    const wz = p[1] - a[1];
+
+    const c1 = vx * wx + vz * wz;
+    if (c1 <= 0) return calculateDistance(p, a);
+
+    const c2 = vx * vx + vz * vz;
+    if (c2 <= c1) return calculateDistance(p, b);
+
+    const t = c1 / c2;
+    const proj = [a[0] + t * vx, a[1] + t * vz];
+    return calculateDistance(p, proj);
+}
+
+/**
  * Find nearest road node to a click coordinate within max blocks.
+ * Preference order within radius:
+ *   1. Non-ramp, non-highway segments
+ *   2. Non-ramp segments (including highways)
+ *   3. Any segment (including ramps) – only if nothing else nearby
+ * Within the chosen class, uses nearest segment (even between vertices) and
+ * snaps to the closer endpoint of that segment. Falls back to pure node search if needed.
+ *
  * @param {Array<number>} targetCoord - [x, z] in block coords
  * @returns {string|null} Node ID "x,z" or null
  */
 function findNearestNode(targetCoord) {
     const MAX_DISTANCE = 30;
+
+    // Helper: best segment within radius that matches filter
+    function bestSegment(filterFn) {
+        let best = null;
+        let bestDist = Infinity;
+        for (const seg of roadSegments) {
+            if (filterFn && !filterFn(seg)) continue;
+            const d = pointToSegmentDistance(targetCoord, seg.start, seg.end);
+            if (d < bestDist && d <= MAX_DISTANCE) {
+                bestDist = d;
+                best = seg;
+            }
+        }
+        return best;
+    }
+
+    const isRamp = (t) => t === 'ramp';
+    const isHighway = (t) => t === 'highway';
+
+    // 1) Non-ramp, non-highway segments
+    let bestSeg = bestSegment(seg => !isRamp(seg.roadType) && !isHighway(seg.roadType));
+    // 2) If none, allow highways but still avoid ramps
+    if (!bestSeg) bestSeg = bestSegment(seg => !isRamp(seg.roadType));
+    // 3) If still none, allow any segment (including ramps)
+    if (!bestSeg) bestSeg = bestSegment(null);
+
+    if (bestSeg) {
+        const dStart = calculateDistance(targetCoord, bestSeg.start);
+        const dEnd = calculateDistance(targetCoord, bestSeg.end);
+        return dStart <= dEnd ? bestSeg.startId : bestSeg.endId;
+    }
+
+    // 2. Fallback: nearest node within radius
     let nearestId = null;
     let minDist = Infinity;
 
