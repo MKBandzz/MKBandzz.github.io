@@ -465,8 +465,11 @@ class Unmined {
             return;
         }
 
-        const startId = findNearestNode(this.pathStartCoordinates);
-        const endId = findNearestNode(this.pathEndCoordinates);
+        // Road graph uses raw block coords [x, z]; map click gives Unmined data coords where Z is inverted.
+        // Convert to graph block coords by negating Z so node lookup matches the displayed markers.
+        const blockCoordForGraph = (c) => [c[0], -c[1]];
+        const startId = findNearestNode(blockCoordForGraph(this.pathStartCoordinates));
+        const endId = findNearestNode(blockCoordForGraph(this.pathEndCoordinates));
 
         if (!startId || !endId) {
             Unmined.toast('No nearby road node for one of the points');
