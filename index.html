@@ -402,6 +402,9 @@
                         if (properties.Type) {
                             htmlContent += `<b>Type: ${properties.Type}</b>`;
                         }
+                        if (properties.Speed) {
+                            htmlContent += `<b>Set Speed: ${properties.Speed}km/h</b>`;
+                        }						
                     } 
                     // For Properties: Show all non-null values
                     else if (clickedLayerTitle === 'Properties/POIs') {
