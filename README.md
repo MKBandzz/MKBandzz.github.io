@@ -9,13 +9,14 @@ MKB Map is powered by UnMiNeD, and uses GeoJSON files overlayed on top of the ma
 
 - See road names and type
 - See properties, its name, address, and type
+- [BETA] Pathfinding between set points 
 - ✨Magic ✨
 
 ## Features
 
 - Road and Property vectors
 - Road attributes (Speed, Type, Level, Length)
-- Pathfinding between nodes 
+- Pathfinding between set points
 - Multiple Zoom Levels
 
 
@@ -23,14 +24,14 @@ MKB Map is powered by UnMiNeD, and uses GeoJSON files overlayed on top of the ma
 
 - Search for roads, pois, addresses, etc
 - Polish UI
-- Full pathfinding using Dijkstra
+- Toggle Map Layers
 
-Updates to the map layer are typically done every month
+Map Updates Monthly
 
 
 _2.2 (2-11-26)_
 
--Pathfinding now works for short distances
+-Pathfinding now works
 
 -Updated Map Tiles
 
