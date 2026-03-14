@@ -28,6 +28,11 @@ MKB Map is powered by UnMiNeD, and uses GeoJSON files overlayed on top of the ma
 
 Map Updates Monthly
 
+2.3 (03-14-26)
+
+-Pathfinding is now mostly bug free and will provide the fastest route, factoring highways, overpasses, and one way roads
+
+-Updated map tiles
 
 _2.2 (2-11-26)_
 
