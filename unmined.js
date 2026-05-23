@@ -477,7 +477,14 @@ class Unmined {
             return;
         }
 
-        const result = calculatePath(startId, endId);
+        let result;
+        try {
+            result = calculatePath(startId, endId);
+        } catch (err) {
+            console.error('Pathfinding failed:', err);
+            Unmined.toast('Pathfinding failed. Try points closer to roads.');
+            return;
+        }
 
         if (!result.path || result.path.length === 0) {
             Unmined.toast(result.message || 'No route found');
@@ -488,15 +495,20 @@ class Unmined {
         this.drawPath(result.path);
 
         const distanceText = result.distance != null ? `${result.distance.toFixed(0)} blocks` : '';
-        this.showPathInfoPanel(distanceText, result.message || 'Route found');
+        const etaText = typeof formatTravelTime === 'function'
+            ? formatTravelTime(result.totalCost)
+            : '';
+        this.showPathInfoPanel(distanceText, etaText, result.message || 'Route found');
     }
 
-    showPathInfoPanel(distanceText, message) {
+    showPathInfoPanel(distanceText, etaText, message) {
         const panel = document.getElementById('path-info-panel');
         if (!panel) return;
         const content = panel.querySelector('.path-info-content');
+        const etaEl = panel.querySelector('.path-info-eta');
         const msgEl = panel.querySelector('.path-info-message');
         if (content) content.textContent = distanceText || '';
+        if (etaEl) etaEl.textContent = etaText || '';
         if (msgEl) msgEl.textContent = message || '';
         panel.style.display = 'block';
     }
