@@ -134,6 +134,21 @@ function buildRoadGraph(features) {
 }
 
 /**
+ * Format path totalCost as travel time. Edge cost = distance/speed (speed in blocks per minute).
+ * @param {number} totalCost - Sum of segment costs from calculatePath
+ * @returns {string} e.g. "ETA: 12 min 34 sec"
+ */
+function formatTravelTime(totalCost) {
+    if (totalCost == null || !isFinite(totalCost) || totalCost < 0) return '';
+    const totalSeconds = Math.max(0, Math.round(totalCost * 60));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes === 0) return `ETA: ${seconds} sec`;
+    if (seconds === 0) return `ETA: ${minutes} min`;
+    return `ETA: ${minutes} min ${seconds} sec`;
+}
+
+/**
  * Distance from point P to segment AB.
  */
 function pointToSegmentDistance(p, a, b) {
