@@ -2,8 +2,12 @@
 // PATHFINDING - Road Network Graph with Direction & Level Rules
 // ====================================================================
 // Graph respects: Path (B/BE/EB), Level connectivity (|Δlevel| ≤ 1)
-// Cost = distance/speed (time-based routing)
+// Cost = travel time in hours: (blocks / 1000) / speed_kmh (1 block = 1 m, Speed in km/h)
 // ====================================================================
+
+const BLOCKS_PER_KM = 1000;
+const DEFAULT_ROAD_SPEED_KMH = 60; // roads missing Speed attribute
+const DEFAULT_SPEED_KMH = 80; // A* heuristic only
 
 let roadGraph = {};
 let roadSegments = []; // for segment-based nearest selection
@@ -101,13 +105,14 @@ function buildRoadGraph(features) {
 
         const path = parsePath(props);
         const level = parseLevel(props);
-        const speed = Math.max(1, parseFloat(props?.speed ?? props?.Speed ?? 50));
+        const speedParsed = parseFloat(props?.speed ?? props?.Speed);
+        const speed = Math.max(1, Number.isFinite(speedParsed) ? speedParsed : DEFAULT_ROAD_SPEED_KMH);
 
         for (let i = 0; i < coords.length - 1; i++) {
             const start = coords[i];
             const end = coords[i + 1];
             const dist = calculateDistance(start, end);
-            const cost = dist / speed; // time-based cost
+            const cost = (dist / BLOCKS_PER_KM) / speed; // hours: km / (km/h)
 
             const startId = `${Math.round(start[0])},${Math.round(start[1])}`;
             const endId = `${Math.round(end[0])},${Math.round(end[1])}`;
@@ -134,18 +139,18 @@ function buildRoadGraph(features) {
 }
 
 /**
- * Format path totalCost as travel time. Edge cost = distance/speed (speed in blocks per minute).
- * @param {number} totalCost - Sum of segment costs from calculatePath
- * @returns {string} e.g. "ETA: 12 min 34 sec"
+ * Format path totalCost as travel time. totalCost is sum of segment hours from (blocks/1000)/speed_kmh.
+ * @param {number} totalCostHours - Sum of segment travel times in hours
+ * @returns {string} e.g. "ETA: 1:00" or "ETA: 12:34"
  */
-function formatTravelTime(totalCost) {
-    if (totalCost == null || !isFinite(totalCost) || totalCost < 0) return '';
-    const totalSeconds = Math.max(0, Math.round(totalCost * 60));
+function formatTravelTime(totalCostHours) {
+    if (totalCostHours == null || !isFinite(totalCostHours) || totalCostHours < 0) return '';
+    const totalSeconds = Math.max(0, Math.round(totalCostHours * 3600));
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
-    if (minutes === 0) return `ETA: ${seconds} sec`;
-    if (seconds === 0) return `ETA: ${minutes} min`;
-    return `ETA: ${minutes} min ${seconds} sec`;
+    const mm = String(minutes);
+    const ss = String(seconds).padStart(2, '0');
+    return `ETA: ${mm}:${ss}`;
 }
 
 /**
@@ -243,7 +248,8 @@ function calculatePath(startNodeId, endNodeId) {
 
     function heuristic(nodeId) {
         const n = roadGraph[nodeId];
-        return n ? calculateDistance([n.x, n.z], endCoord) / 80 : 0; // rough time estimate
+        const distKm = calculateDistance([n.x, n.z], endCoord) / BLOCKS_PER_KM;
+        return n ? distKm / DEFAULT_SPEED_KMH : 0;
     }
 
     // Frontier: { nodeId, level, gScore, fScore }
