@@ -496,7 +496,7 @@ class Unmined {
 
         const distanceText = result.distance != null ? `${result.distance.toFixed(0)} blocks` : '';
         const etaText = typeof formatTravelTime === 'function'
-            ? formatTravelTime(result.totalCost)
+            ? formatTravelTime(result.travelTimeHours ?? result.totalCost)
             : '';
         this.showPathInfoPanel(distanceText, etaText, result.message || 'Route found');
     }
