@@ -55,14 +55,39 @@ function levelsCanConnect(level1, level2) {
  * Add directed edge to graph.
  * Ensures BOTH endpoints exist as nodes so we can safely expand from any nodeId we encounter.
  */
-function addEdge(graph, fromId, toId, level, cost, fromCoord, toCoord) {
+function addEdge(graph, fromId, toId, level, cost, dist, speed, fromCoord, toCoord) {
     if (!graph[fromId]) {
         graph[fromId] = { x: fromCoord[0], z: fromCoord[1], edges: [] };
     }
     if (!graph[toId]) {
         graph[toId] = { x: toCoord[0], z: toCoord[1], edges: [] };
     }
-    graph[fromId].edges.push({ toId, level, cost });
+    graph[fromId].edges.push({ toId, level, cost, dist, speed });
+}
+
+/** Travel time in hours: blocks as meters, Speed in km/h */
+function travelTimeHours(distBlocks, speedKmh) {
+    return (distBlocks / BLOCKS_PER_KM) / speedKmh;
+}
+
+function nodeIdFromCoord(coord) {
+    return `${Math.round(coord[0])},${Math.round(coord[1])}`;
+}
+
+/**
+ * Sum travel time along the driven path using each edge's length and Speed.
+ */
+function computePathTravelTimeHours(path) {
+    let hours = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+        const fromId = nodeIdFromCoord(path[i]);
+        const toId = nodeIdFromCoord(path[i + 1]);
+        const edge = roadGraph[fromId]?.edges.find(e => e.toId === toId);
+        const dist = edge?.dist ?? calculateDistance(path[i], path[i + 1]);
+        const speed = edge?.speed ?? DEFAULT_ROAD_SPEED_KMH;
+        hours += travelTimeHours(dist, speed);
+    }
+    return hours;
 }
 
 /**
@@ -112,7 +137,7 @@ function buildRoadGraph(features) {
             const start = coords[i];
             const end = coords[i + 1];
             const dist = calculateDistance(start, end);
-            const cost = (dist / BLOCKS_PER_KM) / speed; // hours: km / (km/h)
+            const cost = travelTimeHours(dist, speed);
 
             const startId = `${Math.round(start[0])},${Math.round(start[1])}`;
             const endId = `${Math.round(end[0])},${Math.round(end[1])}`;
@@ -127,10 +152,10 @@ function buildRoadGraph(features) {
             });
 
             if (path.forward) {
-                addEdge(roadGraph, startId, endId, level, cost, start, end);
+                addEdge(roadGraph, startId, endId, level, cost, dist, speed, start, end);
             }
             if (path.backward) {
-                addEdge(roadGraph, endId, startId, level, cost, end, start);
+                addEdge(roadGraph, endId, startId, level, cost, dist, speed, end, start);
             }
         }
     });
@@ -296,9 +321,12 @@ function calculatePath(startNodeId, endNodeId) {
                 totalDist += calculateDistance(path[i], path[i + 1]);
             }
 
+            const travelTimeHours = computePathTravelTimeHours(path);
+
             return {
                 path,
                 totalCost: g,
+                travelTimeHours,
                 distance: totalDist,
                 message: 'Route found.'
             };
